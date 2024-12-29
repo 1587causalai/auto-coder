@@ -7,6 +7,7 @@
   <meta name="description" content="AutoCoder 快速入门指南 - AI 编程助手">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, minimum-scale=1.0">
   <link rel="stylesheet" href="//cdn.jsdelivr.net/npm/docsify@4/lib/themes/vue.css">
+  <link rel="icon" href="../logo/auto-coder.jpeg" type="image/jpeg">
 </head>
 <body>
   <div id="app"></div>
@@ -28,13 +29,9 @@
         successText: '已复制'
       },
       auto2top: true,
-      coverpage: false,
       executeScript: true,
       mergeNavbar: true,
       formatUpdated: '{MM}/{DD} {HH}:{mm}',
-      alias: {
-        '/.*/_sidebar.md': '/_sidebar.md'
-      },
       plugins: [
         function(hook, vm) {
           hook.beforeEach(function(html) {
@@ -58,7 +55,5 @@
   <script src="//cdn.jsdelivr.net/npm/prismjs@1/components/prism-yaml.min.js"></script>
   <!-- 图片缩放插件 -->
   <script src="//cdn.jsdelivr.net/npm/docsify/lib/plugins/zoom-image.min.js"></script>
-  <!-- 字数统计 -->
-  <script src="//unpkg.com/docsify-count/dist/countable.js"></script>
 </body>
 </html>
