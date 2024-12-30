@@ -14,7 +14,7 @@
   <script>
     window.$docsify = {
       name: 'AutoCoder',
-      repo: 'https://github.com/qian-bi/auto-coder',
+      repo: 'https://github.com/allwefantasy/auto-coder',
       loadSidebar: true,
       subMaxLevel: 3,
       search: {
@@ -35,9 +35,11 @@
       plugins: [
         function(hook, vm) {
           hook.beforeEach(function(html) {
+            const url = 'https://github.com/allwefantasy/auto-coder/blob/master/docs/' + vm.route.file;
             return html + '\n\n----\n\n' +
-              '> 最后更新时间: {docsify-updated} ' +
-              '由 [AutoCoder](https://github.com/qian-bi/auto-coder) 强力驱动';
+              '> 最后更新时间: {docsify-updated} · ' +
+              '[在 GitHub 上编辑此页](' + url + ') · ' +
+              '由 [AutoCoder](https://github.com/allwefantasy/auto-coder) 强力驱动';
           });
         }
       ]

@@ -1,4 +1,6 @@
 * [快速开始](/)
 * [为什么选择 AutoCoder](quick-start/why-autocoder.md)
 * [上下文管理](quick-start/context-management.md)
-* [Prompt 优化](quick-start/prompt-forge.md) 
+* [Prompt 优化](quick-start/prompt-forge.md)
+* [更多文档](https://uelng8wukz.feishu.cn/wiki/QIpkwpQo2iSdkwk9nP6cNSPlnPc)
+* [English](https://github.com/allwefantasy/auto-coder/tree/master/docs/en) 

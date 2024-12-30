@@ -1,14 +1,5 @@
 # AutoCoder 快速入门指南
 
-<p align="center">
-  <picture>    
-    <img alt="auto-coder" src="../../logo/auto-coder.jpeg" width=55%>
-  </picture>
-</p>
-
-<h3 align="center">
-Auto-Coder (powered by Byzer-LLM)
-</h3>
 
 > auto-coder 是一个基于YAML配置的命令行开发辅助工具，可以根据您的需求自动迭代开发已有项目。
 
