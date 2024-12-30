@@ -6,6 +6,9 @@
 我的目标是开发一个深度结合 cursor 的版本, 丢弃许多其他的逻辑, 只关心生成合适的提示词 ---  生成需求文档, 然后交给 cursor 来完成代码的生成. 
 - 但是感觉成本很不划算呢，我直接让 cursor 是自己设计提示词不就行了吗 ... 
 - 另外一个解答的方式就是我把它当成一个提示词生成器使用不就行了吗？ `Mode: nature language auto detect (ctl+k) | Human as Model: true (ctl+n)` 
+  
+
+这个项目相当于一个开源的 cursor 项目，有一种 128k 手搓上下文的感觉. 
 
 
 
@@ -45,8 +48,6 @@ easy-byzerllm chat deepseek_chat "你好"
 
 ## 使用方式
 
-使用指南文档见: 
-[AutoCoder_Chat-Auto-Coder指南](046_AutoCoder_Chat-Auto-Coder指南)
 
 ### 方式一：Chat 模式（推荐）
 

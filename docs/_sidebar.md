@@ -6,6 +6,7 @@
 * [Prompt 优化](quick-start/prompt-forge.md)
 * [深入理解 AutoCoder](quick-start/deep-dive.md)
 * [更多文档](https://uelng8wukz.feishu.cn/wiki/QIpkwpQo2iSdkwk9nP6cNSPlnPc)
+  * [Cursor 快速开发](quick-start/cursor-tutorial.md)
   * [深入理解 /chat 命令](quick-start/chat-command-deep-dive.md)
   * [大模型快速api使用](https://github.com/allwefantasy/byzer-llm/blob/master/docs/zh/004_easy_byzerllm_%E4%BD%BF%E7%94%A8%E6%8C%87%E5%8D%97.md)
   * [zh](https://github.com/allwefantasy/auto-coder/tree/master/docs/zh) 
