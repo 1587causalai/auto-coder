@@ -3,6 +3,14 @@
 
 > auto-coder 是一个基于YAML配置的命令行开发辅助工具，可以根据您的需求自动迭代开发已有项目。
 
+我的目标是开发一个深度结合 cursor 的版本, 丢弃许多其他的逻辑, 只关心生成合适的提示词 ---  生成需求文档, 然后交给 cursor 来完成代码的生成. 
+- 但是感觉成本很不划算呢，我直接让 cursor 是自己设计提示词不就行了吗 ... 
+- 另外一个解答的方式就是我把它当成一个提示词生成器使用不就行了吗？ `Mode: nature language auto detect (ctl+k) | Human as Model: true (ctl+n)` 
+
+
+
+[AutoCoder 飞书文档](https://swze06osuex.feishu.cn/docx/YkuOdnq3doiA5nx1ntCcor28nhe)
+
 ## 快速安装
 
 ### 基础环境配置
@@ -19,14 +27,6 @@ pip install -U auto-coder
 ray start --head
 ```
 
-如果你还没有安装 conda，可以通过以下命令安装：
-
-```bash
-wget https://mirrors.tuna.tsinghua.edu.cn/anaconda/miniconda/Miniconda3-py38_4.12.0-Linux-x86_64.sh
-bash Miniconda3-py38_4.12.0-Linux-x86_64.sh
-```
-
-Windows 用户可以参考 [Windows 安装特别说明](../zh/043_AutoCoder_Windows安装特别说明.md)。
 
 ### 启动模型代理
 
@@ -44,6 +44,9 @@ easy-byzerllm chat deepseek_chat "你好"
 ```
 
 ## 使用方式
+
+使用指南文档见: 
+[AutoCoder_Chat-Auto-Coder指南](046_AutoCoder_Chat-Auto-Coder指南)
 
 ### 方式一：Chat 模式（推荐）
 
@@ -94,14 +97,6 @@ query: |
 ```bash
 auto-coder --file actions/000_example.yml
 ```
-
-## 更多资源
-
-- [如何在聊天中完成代码编写](https://www.bilibili.com/video/BV17M4m1m7MW/) - 视频教程
-- [Chat-Auto-Coder 指南](../zh/046_AutoCoder_Chat-Auto-Coder指南.md)
-- [chat-auto-coder 使用实践](../zh/047_chat-auto-coder使用实践.md)
-- [Auto-Coder.Chat: 通向智能编程之路](https://uelng8wukz.feishu.cn/wiki/QIpkwpQo2iSdkwk9nP6cNSPlnPc)
-
 ## 本地预览文档
 
 ```bash

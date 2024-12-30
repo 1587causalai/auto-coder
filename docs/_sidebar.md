@@ -1,6 +1,11 @@
-* [快速开始](/)
+* AutoCoder 文档  
+  * [快速开始](quick-start/getting-started.md)
+  * [AutoCoder_Chat-Auto-Coder指南](zh/046_AutoCoder_Chat-Auto-Coder指南.md)
 * [为什么选择 AutoCoder](quick-start/why-autocoder.md)
 * [上下文管理](quick-start/context-management.md)
 * [Prompt 优化](quick-start/prompt-forge.md)
+* [深入理解 AutoCoder](quick-start/deep-dive.md)
 * [更多文档](https://uelng8wukz.feishu.cn/wiki/QIpkwpQo2iSdkwk9nP6cNSPlnPc)
-* [English](https://github.com/allwefantasy/auto-coder/tree/master/docs/en) 
+  * [深入理解 /chat 命令](quick-start/chat-command-deep-dive.md)
+  * [大模型快速api使用](https://github.com/allwefantasy/byzer-llm/blob/master/docs/zh/004_easy_byzerllm_%E4%BD%BF%E7%94%A8%E6%8C%87%E5%8D%97.md)
+  * [zh](https://github.com/allwefantasy/auto-coder/tree/master/docs/zh) 

@@ -1,6 +1,11 @@
 # 为什么选择 AutoCoder?
 
+
+- cursor 不就够了吗? 为什么还需要 AutoCoder?
+
+
 AutoCoder 是一个务实的 AI 编程助手工具，它通过独特的方法论和设计理念解决了实际开发中的关键问题。本文将详细介绍 AutoCoder 的核心价值和它解决的具体问题。
+
 
 ## 核心差异化价值
 
@@ -18,13 +23,87 @@ AutoCoder 不追求完全自动化，而是专注于让编码环节真正做到�
 - 确保可靠性
 
 ### 3. 支持迭代式开发
+
 采用"小步快跑"的开发方式：
 - 将大型PR拆分成多个小型迭代
-- 提供多种自动化程度选项：
-  - 仅生成 Prompt
-  - 自动执行 Prompt
-  - 自动合并代码
+- 提供多种自动化程度选项
 - 使用 YAML 配置描述需求，便于回顾整个迭代过程
+
+#### 3.1 迭代开发配置示例
+
+```yaml
+# 基础配置
+source_dir: ./my-project     # 项目源码目录
+target_file: src/feature.py  # 目标文件
+query: "实现用户登录功能"    # 本次迭代的需求描述
+
+# 上下文控制
+context:
+  relevant_files:           # 相关文件列表
+    - src/models/user.py
+    - src/utils/auth.py
+  urls:                     # 参考文档
+    - https://docs.example.com/auth
+  py_packages:              # 相关的Python包
+    - flask-login
+    
+# 执行控制
+execute: true              # 是否自动执行生成的代码
+auto_merge: false          # 是否自动合并更改
+review_first: true        # 是否先进行代码审查
+```
+
+#### 3.2 多级自动化选项
+
+
+```markdown
+1. **仅生成 Prompt 模式**
+   - 设置 `execute: false`
+   - AutoCoder 只生成 Prompt，不执行代码生成
+   - 适合需要人工调整 Prompt 的场景
+   
+2. **自动执行 Prompt 模式**
+   - 设置 `execute: true, auto_merge: false`
+   - 自动生成代码但不合并
+   - 允许开发者审查生成的代码
+   
+3. **全自动模式**
+   - 设置 `execute: true, auto_merge: true`
+   - 自动生成并合并代码
+   - 适合简单且有把握的修改
+```
+
+#### 3.3 迭代历史管理
+
+每次迭代都会生成详细的记录：
+- 保存在 `actions/` 目录下
+- 使用时间戳命名，如 `20240315_login_feature.yml`
+- 包含完整的配置和执行结果
+- 支持回滚到之前的版本
+
+#### 3.4 最佳实践
+
+1. **渐进式开发**
+   - 将复杂功能拆分成多个小步骤
+   - 每步专注于一个具体目标
+   - 便于追踪和调试
+
+2. **代码审查流程**
+   - 使用 `review_first: true` 启用代码审查
+   - 审查通过后再决定是否合并
+   - 可以添加自定义的审查规则
+
+3. **版本控制集成**
+   - 每次迭代自动创建新分支
+   - 支持自动提交和推送更改
+   - 可配置提交信息模板
+
+4. **迭代优化**
+   - 根据生成结果调整配置
+   - 积累项目特定的最佳实践
+   - 持续改进提示词模板
+
+
 
 ## 解决的核心问题
 
@@ -75,22 +154,19 @@ AutoCoder 的价值主要体现在：
 
 # FAQ
 
-
 ## 1. 这个项目的独特价值是什么？它到底解决了什么问题？
-
 
 根据提供的文档，我来分析 AutoCoder 的核心价值和它解决的关键问题：
 
-
 ### 1. 核心差异化价值
-
-
 
 1. **模拟真实开发流程**
 - 不同于 GitHub Copilot 这样的代码提示工具，AutoCoder 模拟了真实程序员的开发行为，包括:
 
-```11:19:docs/zh/为什么不是GithubCopilot,不是Devin而是AutoCoder.md
-第二个维度是 Github Copilot 无法模拟人类的开发行为，我们实际做开发的时候，一般都是基于已有功能，并且根据某种“文档”，“第三方代码”和“搜索引擎”来进行开发。
+```text
+# docs/zh/为什么不是GithubCopilot,不是Devin而是AutoCoder.md
+
+第二个维度是 Github Copilot 无法模拟人类的开发行为，我们实际做开发的时候，一般都是基于已有功能，并且根据某种"文档"，"第三方代码"和"搜索引擎"来进行开发。
 
 比如 Byzer-LLM 要对接 Qwen-vl 多模态大模型，那么作为一个开发，我至少需要准备三个事情：
 
@@ -101,38 +177,44 @@ AutoCoder 的价值主要体现在：
 只有获取了这些信息之后，我们才能写出一个靠谱的代码。但 Github copilot 能做到这些么？显然做不到。
 ```
 
-
 2. **专注于可靠的代码修改**
 - 不像 Devin 追求完全自动化但不稳定，AutoCoder 专注于:
 
-```55:56:docs/zh/为什么不是GithubCopilot,不是Devin而是AutoCoder.md
+```text
+# docs/zh/为什么不是GithubCopilot,不是Devin而是AutoCoder.md
+
 AutoCoder专注在编码环节，相比需求分析，拆解，环境安装，构建项目，编写代码，自动debug,甚至自动运行测试，我们只专注在编程这个环节，让这个环节真正做到提效，稳定，可靠。
-
 ```
-
 
 3. **支持迭代式开发**
 - 采用小步快跑的开发方式:
 
-```61:63:docs/zh/为什么不是GithubCopilot,不是Devin而是AutoCoder.md
+```text
+# docs/zh/为什么不是GithubCopilot,不是Devin而是AutoCoder.md
+
 此外，我们鼓励程序员使用进行小步快跑的方式使用AutoCoder,每次只做tiny 迭代，类似于人类一个大PR 需要拆解成几个小PR才能被提交。
 
 此外，我们还提供了仅生成Prompt,自动执行Prompt,到自动merge代码 三种可选自动化程度，在每一步小迭代中都可以由用户来选择自动化什么程度。由于每一个小迭代，我们都采用了yml配置来描述需求，意味着用户可以回顾自己迭代的整个过程。
 ```
 
-
 ### 2. 解决的核心问题
 
 1. **项目代码理解问题**
 - 能够阅读已有项目源码、第三方库文档和搜索参考资料，从而更好地理解上下文
-```markdown:docs/zh/命令行版Devin 来了_Auto-Coder.md
+
+```text
+# docs/zh/命令行版Devin 来了_Auto-Coder.md
+
 startLine: 269
 endLine: 273
 ```
 
 2. **代码修改的安全性**
 - 提供了不同级别的自动化选项和代码合并策略，让用户可以控制风险
-```markdown:docs/zh/015 - AutoCoder 迭代粒度拆解技巧.md
+
+```text
+# docs/zh/015 - AutoCoder 迭代粒度拆解技巧.md
+
 startLine: 11
 endLine: 13
 ```
@@ -140,7 +222,9 @@ endLine: 13
 3. **实际开发效率问题**
 - 通过合理的任务拆解和迭代方式提高开发效率:
 
-```5:11:docs/zh/037-AutoCoder_项目快速修bug实战.md
+```text
+# docs/zh/037-AutoCoder_项目快速修bug实战.md
+
 使用 auto-coder 的开发流程如下：
 
 1. 编写一个YAML文件来描述您的需求，Auto-Coder将生成代码并将代码合并到您的项目中。
@@ -150,22 +234,25 @@ endLine: 13
 5. 重复上述步骤，直到您对auto-coder生成的代码满意。
 ```
 
-
 ### 3. 独特的方法论
 
 1. **合理的粒度拆解**
 - 不追求一次性解决所有问题，而是强调合理拆解任务:
 
-```137:139:docs/zh/038-AutoCoder_为什么你需要经过反复练习才能用好.md
+```text
+# docs/zh/038-AutoCoder_为什么你需要经过反复练习才能用好.md
+
 我们在做实际的项目迭代，你会发现，我们是要能够比较精准控制我们最后的代码的，因为你的代码要能够满足你已有项目的一些风格以及一些规范，包括你需要较为准确的控制你的代码的逻辑，所以正常你应该尽可能提供详细的需求和实现逻辑。通过参考范例，可以极大的简化你的业务逻辑描述。
 
 你当然也可以提一个笼统的需求，但最后auto-coder 可能实现了你最后的目标，但是当你review commit 的时候，你可能会需要较多的修改满足项目自身的一些规范和需求。
 ```
 
-
 2. **人机协作模式**
 - 保持程序员对代码的控制，而不是完全依赖 AI:
-```markdown:docs/zh/015 - AutoCoder 迭代粒度拆解技巧.md
+
+```text
+# docs/zh/015 - AutoCoder 迭代粒度拆解技巧.md
+
 startLine: 11
 endLine: 13
 ```
@@ -180,3 +267,99 @@ AutoCoder 的核心价值在于它找到了一个平衡点：
 4. 让程序员保持对代码的控制，同时享受 AI 带来的效率提升
 
 这使得 AutoCoder 成为一个更加务实和可落地的 AI 编程助手工具，而不是一个概念性的演示产品。
+
+
+## 2. 项目的目录结构?
+
+让我帮你分析这个项目的目录结构：
+
+### 1. 核心代码目录
+```
+src/
+├── autocoder/      # 主要的 Python 包代码
+└── utils/          # 工具函数
+```
+这是项目的核心实现代码所在目录。
+
+### 2. 文档相关
+```
+docs/
+├── en/            # 英文文档
+├── zh/            # 中文文档
+├── quick-start/   # 快速入门指南
+├── images/        # 文档用到的图片
+├── index.html     # 文档网站入口
+└── _sidebar.md    # 文档侧边栏配置
+```
+使用 docsify 构建的文档系统。
+
+### 3. IDE 插件
+```
+ide_plugins/
+└── vscode/        # VSCode 插件代码
+```
+提供 VSCode 集成支持。
+
+### 4. 安装器
+```
+auto_coder_installer/
+├── cmd/           # 命令行安装器
+├── gui/           # 图形界面安装器
+└── main.go        # Go 语言实现的安装程序
+```
+用于简化安装过程的工具。
+
+### 5. 桌面应用
+```
+pc/
+└── app-auto-coder/  # 桌面客户端应用
+```
+独立的桌面应用版本。
+
+### 6. 开发和测试
+```
+notebooks/          # Jupyter notebooks，用于开发和测试
+├── tests/          # notebook 相关的测试
+└── *.ipynb         # 各种功能的开发和测试笔记本
+
+tests/              # 单元测试
+├── test_planner.py
+├── test_chat_auto_coder.py
+└── ...            # 其他测试文件
+```
+包含开发过程中的实验代码和单元测试。
+
+### 7. 资源文件
+```
+logo/              # 项目 logo
+└── auto-coder.jpeg
+```
+项目使用的静态资源。
+
+### 8. 配置文件
+```
+├── requirements.txt   # Python 依赖
+├── setup.py          # Python 包安装配置
+└── package-lock.json # Node.js 依赖锁定文件
+```
+项目依赖和配置文件。
+
+### 项目特点
+
+1. **多端支持**：
+   - 命令行工具（Python 包）
+   - VSCode 插件
+   - 桌面应用
+   - Web 文档
+
+2. **完善的工具链**：
+   - 安装器（支持 GUI 和命令行）
+   - 文档系统（多语言支持）
+   - 测试套件
+
+3. **开发友好**：
+   - 大量的开发笔记本（notebooks）
+   - 完整的测试用例
+   - 详细的文档
+
+这个项目结构显示它是一个成熟的工具链产品，不仅提供核心功能，还包括了完整的配套设施（文档、测试、安装工具等）。同时支持多种使用方式（命令行、IDE 插件、桌面应用），满足不同用户的需求。
