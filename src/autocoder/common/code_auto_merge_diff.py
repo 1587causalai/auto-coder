@@ -1,7 +1,7 @@
 import os
 import difflib
 from autocoder.common import AutoCoderArgs,git_utils
-from typing import List
+from typing import List,Union,Tuple
 import pydantic
 import byzerllm
 from loguru import logger
@@ -15,6 +15,8 @@ from autocoder.common.search_replace import (
     flexible_search_and_replace,
     search_and_replace,
 )
+from autocoder.common.types import CodeGenerateResult, MergeCodeWithoutEffect
+from autocoder.common.code_modification_ranker import CodeModificationRanker
 
 class PathAndCode(pydantic.BaseModel):
     path: str
@@ -374,6 +376,25 @@ class CodeAutoMergeDiff:
             edits.append((path, hunk))
 
         return edits
+
+    def merge_code(self, generate_result: CodeGenerateResult, force_skip_git: bool = False):
+        result = self.choose_best_choice(generate_result)
+        self._merge_code(result.contents[0], force_skip_git)
+        return result
+
+    def choose_best_choice(self, generate_result: CodeGenerateResult) -> CodeGenerateResult:
+        if len(generate_result.contents) == 1:
+            return generate_result
+
+        ranker = CodeModificationRanker(self.llm, self.args)
+        ranked_result = ranker.rank_modifications(generate_result)
+        # Filter out contents with failed blocks
+        for content,conversations in zip(ranked_result.contents,ranked_result.conversations):
+            merge_result = self._merge_code_without_effect(content)
+            if not merge_result.failed_blocks:
+                return CodeGenerateResult(contents=[content], conversations=[conversations])
+        # If all have failed blocks, return the first one
+        return CodeGenerateResult(contents=[ranked_result.contents[0]], conversations=[ranked_result.conversations[0]])
     
     @byzerllm.prompt(render="jinja2")
     def git_require_msg(self,source_dir:str,error:str)->str:
@@ -450,7 +471,39 @@ class CodeAutoMergeDiff:
                 errors += other_hunks_applied
             raise ValueError(errors)    
 
-    def merge_code(self, content: str,force_skip_git:bool=False):        
+    def _merge_code_without_effect(self, content: str) -> MergeCodeWithoutEffect:
+        """Merge code without any side effects like git operations or file writing.
+        Returns a tuple of:
+        - list of (file_path, new_content) tuples for successfully merged blocks
+        - list of (file_path, hunk) tuples for failed to merge blocks"""
+        edits = self.get_edits(content)
+        file_content_mapping = {}
+        failed_blocks = []
+        
+        for path, hunk in edits:
+            full_path = self.abs_root_path(path)
+            if not os.path.exists(full_path):
+                _, after = hunk_to_before_after(hunk)
+                file_content_mapping[full_path] = after
+                continue
+                
+            if full_path not in file_content_mapping:
+                with open(full_path, "r") as f:
+                    file_content_mapping[full_path] = f.read()
+            
+            content = file_content_mapping[full_path]
+            new_content = do_replace(full_path, content, hunk)
+            if new_content:
+                file_content_mapping[full_path] = new_content
+            else:
+                failed_blocks.append((full_path, "\n".join(hunk)))
+                
+        return MergeCodeWithoutEffect(
+            success_blocks=[(path, content) for path, content in file_content_mapping.items()],
+            failed_blocks=failed_blocks
+        )
+
+    def _merge_code(self, content: str,force_skip_git:bool=False):        
         total = 0
         
         file_content = open(self.args.file).read()

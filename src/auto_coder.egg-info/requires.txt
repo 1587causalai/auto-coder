@@ -16,7 +16,7 @@ tabulate
 jupyter_client
 prompt-toolkit
 tokenizers
-byzerllm[saas]>=0.1.140
+byzerllm[saas]>=0.1.144
 patch
 diff_match_patch
 GitPython
@@ -28,6 +28,7 @@ azure-cognitiveservices-speech
 python-docx
 docx2txt
 pdf2image
+Spire.Doc
 docx2pdf
 pyperclip
 colorama
@@ -47,3 +48,4 @@ pydub
 youtube-transcript-api
 SpeechRecognition
 pathvalidate
+mcp

@@ -4,6 +4,8 @@ from autocoder.common import AutoCoderArgs
 import byzerllm
 from autocoder.utils.queue_communicate import queue_communicate, CommunicateEvent, CommunicateEventType
 from autocoder.common import sys_prompt
+from concurrent.futures import ThreadPoolExecutor
+from autocoder.common.types import CodeGenerateResult
 
 
 class CodeAutoGenerate:
@@ -12,13 +14,15 @@ class CodeAutoGenerate:
     ) -> None:
         self.llm = llm
         self.args = args
-        self.action = action
+        self.action = action        
+        self.generate_times_same_model = args.generate_times_same_model
         if not self.llm:
             raise ValueError(
                 "Please provide a valid model instance to use for code generation."
             )
-        if self.llm.get_sub_client("code_model"):
-            self.llm = self.llm.get_sub_client("code_model")
+        self.llms = self.llm.get_sub_client("code_model") or [self.llm]
+        if not isinstance(self.llms, list):
+            self.llms = [self.llms]
 
     @byzerllm.prompt(llm=lambda self: self.llm)
     def auto_implement_function(self, instruction: str, content: str) -> str:
@@ -48,12 +52,15 @@ class CodeAutoGenerate:
 
         {%- if content %}
         下面是一些文件路径以及每个文件对应的源码：
-
+        <files>
         {{ content }}
+        </files>
         {%- endif %}
 
         {%- if context %}
+        <extra_context>
         {{ context }}
+        </extra_context>
         {%- endif %}
 
         下面是用户的需求：
@@ -145,7 +152,7 @@ class CodeAutoGenerate:
 
     def single_round_run(
         self, query: str, source_content: str
-    ) -> Tuple[str, Dict[str, str]]:
+    ) -> Tuple[List[str], Dict[str, str]]:
         llm_config = {"human_as_model": self.args.human_as_model}
 
         if self.args.request_id and not self.args.skip_events:
@@ -178,9 +185,25 @@ class CodeAutoGenerate:
         
         conversations.append({"role": "user", "content": init_prompt})
 
-
-        t = self.llm.chat_oai(conversations=conversations, llm_config=llm_config)
-        conversations.append({"role": "assistant", "content": t[0].output})
+        conversations_list = []
+        results = []
+        if not self.args.human_as_model:
+            with ThreadPoolExecutor(max_workers=len(self.llms) * self.generate_times_same_model) as executor:
+                futures = []
+                for llm in self.llms:
+                    for _ in range(self.generate_times_same_model):
+                        futures.append(executor.submit(
+                            llm.chat_oai, conversations=conversations, llm_config=llm_config))
+                results = [future.result()[0].output for future in futures]
+            for result in results:
+                conversations_list.append(
+                    conversations + [{"role": "assistant", "content": result}])
+        else:            
+            for _ in range(self.args.human_model_num):
+                v = self.llms[0].chat_oai(
+                    conversations=conversations, llm_config=llm_config)
+                results.append(v[0].output)
+                conversations_list.append(conversations + [{"role": "assistant", "content": v[0].output}])
 
         if self.args.request_id and not self.args.skip_events:
             queue_communicate.send_event_no_wait(
@@ -191,7 +214,7 @@ class CodeAutoGenerate:
                 ),
             )
 
-        return [t[0].output], conversations
+        return CodeGenerateResult(contents=results, conversations=conversations_list)
 
     def multi_round_run(
         self, query: str, source_content: str, max_steps: int = 10
@@ -246,6 +269,6 @@ class CodeAutoGenerate:
                 or "/done" in t[0].output
                 or "__EOF__" in t[0].output
             ):
-                return result, conversations
+                return CodeGenerateResult(contents=["\n\n".join(result)], conversations=[conversations])
 
-        return result, conversations
+        return CodeGenerateResult(contents=["\n\n".join(result)], conversations=[conversations])

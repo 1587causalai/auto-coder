@@ -1,5 +1,5 @@
 from typing import List, Dict, Tuple
-from autocoder.common.types import Mode
+from autocoder.common.types import Mode, CodeGenerateResult
 from autocoder.common import AutoCoderArgs
 import byzerllm
 from autocoder.common import sys_prompt
@@ -9,6 +9,7 @@ from autocoder.utils.queue_communicate import (
     CommunicateEventType,
 )
 import json
+from concurrent.futures import ThreadPoolExecutor
 
 
 class CodeAutoGenerateEditBlock:
@@ -25,14 +26,16 @@ class CodeAutoGenerateEditBlock:
         self.action = action
         self.fence_0 = fence_0
         self.fence_1 = fence_1
+        self.generate_times_same_model = args.generate_times_same_model
         if not self.llm:
             raise ValueError(
                 "Please provide a valid model instance to use for code generation."
             )
-        if self.llm.get_sub_client("code_model"):
-            self.llm = self.llm.get_sub_client("code_model")
+        self.llms = self.llm.get_sub_client("code_model") or [self.llm]
+        if not isinstance(self.llms, list):
+            self.llms = [self.llms]
 
-    @byzerllm.prompt(llm=lambda self: self.llm)
+    @byzerllm.prompt()
     def auto_implement_function(self, instruction: str, content: str) -> str:
         """
         下面是一些文件路径以及每个文件对应的源码：
@@ -49,7 +52,7 @@ class CodeAutoGenerateEditBlock:
 
         """
 
-    @byzerllm.prompt(llm=lambda self: self.llm)
+    @byzerllm.prompt()
     def multi_round_instruction(self, instruction: str, content: str, context: str = "") -> str:
         """
         如果你需要生成代码，对于每个需要更改的文件,你需要按 *SEARCH/REPLACE block* 的格式进行生成。
@@ -179,12 +182,15 @@ class CodeAutoGenerateEditBlock:
 
         {%- if content %}
         下面是一些文件路径以及每个文件对应的源码：
-
+        <files>
         {{ content }}
+        </files>
         {%- endif %}
 
         {%- if context %}
+        <extra_context>
         {{ context }}
+        </extra_context>
         {%- endif %}     
 
         下面是用户的需求：
@@ -211,7 +217,7 @@ class CodeAutoGenerateEditBlock:
             "fence_1": self.fence_1,
         }
 
-    @byzerllm.prompt(llm=lambda self: self.llm)
+    @byzerllm.prompt()
     def single_round_instruction(self, instruction: str, content: str, context: str = "") -> str:
         """
         如果你需要生成代码，对于每个需要更改的文件,你需要按 *SEARCH/REPLACE block* 的格式进行生成。
@@ -340,12 +346,15 @@ class CodeAutoGenerateEditBlock:
 
         {%- if content %}
         下面是一些文件路径以及每个文件对应的源码：
-
+        <files>
         {{ content }}
+        </files>
         {%- endif %}
 
         {%- if context %}
+        <extra_context>
         {{ context }}
+        </extra_context>
         {%- endif %}     
 
         下面是用户的需求：
@@ -372,7 +381,7 @@ class CodeAutoGenerateEditBlock:
 
     def single_round_run(
         self, query: str, source_content: str
-    ) -> Tuple[str, Dict[str, str]]:
+    ) -> CodeGenerateResult:
         llm_config = {"human_as_model": self.args.human_as_model}
 
         if self.args.template == "common":
@@ -388,12 +397,14 @@ class CodeAutoGenerateEditBlock:
             file.write(init_prompt)
 
         conversations = []
-        
+
         if self.args.system_prompt and self.args.system_prompt.strip() == "claude":
-            conversations.append({"role": "system", "content": sys_prompt.claude_sys_prompt.prompt()})
+            conversations.append(
+                {"role": "system", "content": sys_prompt.claude_sys_prompt.prompt()})
         elif self.args.system_prompt:
-            conversations.append({"role": "system", "content": self.args.system_prompt})
-        
+            conversations.append(
+                {"role": "system", "content": self.args.system_prompt})
+
         conversations.append({"role": "user", "content": init_prompt})
 
         if self.args.request_id and not self.args.skip_events:
@@ -404,11 +415,28 @@ class CodeAutoGenerateEditBlock:
                     data=json.dumps({}, ensure_ascii=False),
                 ),
             )
-            
-            t = self.llm.chat_oai(
-                conversations=conversations, llm_config=llm_config)
-            conversations.append({"role": "assistant", "content": t[0].output})
-            
+
+        conversations_list = []
+        results = []
+        if not self.args.human_as_model:
+            with ThreadPoolExecutor(max_workers=len(self.llms) * self.generate_times_same_model) as executor:
+                futures = []
+                for llm in self.llms:
+                    for _ in range(self.generate_times_same_model):
+                        futures.append(executor.submit(
+                            llm.chat_oai, conversations=conversations, llm_config=llm_config))
+                results = [future.result()[0].output for future in futures]
+            for result in results:
+                conversations_list.append(
+                    conversations + [{"role": "assistant", "content": result}])
+        else:            
+            for _ in range(self.args.human_model_num):
+                v = self.llms[0].chat_oai(
+                    conversations=conversations, llm_config=llm_config)
+                results.append(v[0].output)
+                conversations_list.append(conversations + [{"role": "assistant", "content": v[0].output}])
+
+        if self.args.request_id and not self.args.skip_events:
             _ = queue_communicate.send_event(
                 request_id=self.args.request_id,
                 event=CommunicateEvent(
@@ -416,16 +444,12 @@ class CodeAutoGenerateEditBlock:
                     data=json.dumps({}, ensure_ascii=False),
                 ),
             )
-            return [t[0].output], conversations
-        else:
-            t = self.llm.chat_oai(
-                conversations=conversations, llm_config=llm_config)
-            conversations.append({"role": "assistant", "content": t[0].output})
-            return [t[0].output], conversations
+
+        return CodeGenerateResult(contents=results, conversations=conversations_list)
 
     def multi_round_run(
         self, query: str, source_content: str, max_steps: int = 10
-    ) -> Tuple[List[str], List[Dict[str, str]]]:
+    ) -> CodeGenerateResult:
         llm_config = {"human_as_model": self.args.human_as_model}
         result = []
 
@@ -445,7 +469,8 @@ class CodeAutoGenerateEditBlock:
         with open(self.args.target_file, "w") as file:
             file.write(init_prompt)
 
-        t = self.llm.chat_oai(conversations=conversations,
+        code_llm = self.llms[0]
+        t = code_llm.chat_oai(conversations=conversations,
                               llm_config=llm_config)
 
         result.append(t[0].output)
@@ -453,7 +478,7 @@ class CodeAutoGenerateEditBlock:
         conversations.append({"role": "assistant", "content": t[0].output})
 
         if "__完成__" in t[0].output or "/done" in t[0].output or "__EOF__" in t[0].output:
-            return result, conversations
+            return CodeGenerateResult(contents=["\n\n".join(result)], conversations=[conversations])
 
         current_step = 0
 
@@ -464,7 +489,7 @@ class CodeAutoGenerateEditBlock:
             with open(self.args.target_file, "w") as file:
                 file.write("继续")
 
-            t = self.llm.chat_oai(
+            t = code_llm.chat_oai(
                 conversations=conversations, llm_config=llm_config)
 
             result.append(t[0].output)
@@ -472,6 +497,7 @@ class CodeAutoGenerateEditBlock:
             current_step += 1
 
             if "__完成__" in t[0].output or "/done" in t[0].output or "__EOF__" in t[0].output:
-                return result, conversations
 
-        return result, conversations
+                return CodeGenerateResult(contents=["\n\n".join(result)], conversations=[conversations])
+
+        return CodeGenerateResult(contents=["\n\n".join(result)], conversations=[conversations])

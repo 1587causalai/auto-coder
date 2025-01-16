@@ -248,6 +248,7 @@ class AutoCoderArgs(pydantic.BaseModel):
     sd_model: Optional[str] = ""
     emb_model: Optional[str] = ""
     code_model: Optional[str] = ""
+    generate_rerank_model: Optional[str] = ""
     inference_model: Optional[str] = ""
     system_prompt: Optional[str] = ""
     planner_model: Optional[str] = ""
@@ -293,6 +294,7 @@ class AutoCoderArgs(pydantic.BaseModel):
 
     auto_merge: Optional[Union[bool, str]] = False
     human_as_model: Optional[bool] = False
+    human_model_num: Optional[int] = 1
 
     image_file: Optional[str] = ""
     image_mode: Optional[str] = "direct"
@@ -344,6 +346,7 @@ class AutoCoderArgs(pydantic.BaseModel):
     without_contexts: Optional[bool] = False
     skip_events: Optional[bool] = False
     data_cells_max_num: Optional[int] = 2000
+    generate_times_same_model: Optional[int] = 1
 
     class Config:
         protected_namespaces = ()

@@ -14,6 +14,13 @@ COMMANDS = {
     },
     "/coding": {"/apply": {}, "/next": {}},
     "/chat": {"/new": {}, "/review": {}, "/no_context": {}},
+    "/mcp": {
+        "/add": "",         
+        "/remove": "",
+        "/list": "",
+        "/list_running": "",
+        "/refresh": ""
+    },
     "/lib": {
         "/add": "",
         "/remove": "",

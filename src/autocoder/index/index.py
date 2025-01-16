@@ -96,7 +96,7 @@ class IndexManager:
 
         ```json
         {
-            "relevant_score": 0-10, // 相关分数
+            "relevant_score": 0-10,
             "reason": "这是相关的原因..."
         }
         ```
@@ -578,8 +578,18 @@ def build_index_and_filter_files(
         "indexed_files": 0,
         "level1_filtered": 0,
         "level2_filtered": 0,
+        "verified_files": 0,
         "final_files": 0,
-        "timings": {}
+        "timings": {
+            "process_tagged_sources": 0.0,
+            "build_index": 0.0,
+            "level1_filter": 0.0,
+            "level2_filter": 0.0,
+            "relevance_verification": 0.0,
+            "file_selection": 0.0,
+            "prepare_output": 0.0,
+            "total": 0.0
+        }
     }
 
     def get_file_path(file_path):
@@ -597,7 +607,8 @@ def build_index_and_filter_files(
             final_files[get_file_path(source.module_name)] = TargetFile(
                 file_path=source.module_name, reason="Rest/Rag/Search"
             )
-    stats["timings"]["process_tagged_sources"] = time.monotonic() - phase_start
+    phase_end = time.monotonic()
+    stats["timings"]["process_tagged_sources"] = phase_end - phase_start
 
     if not args.skip_build_index and llm:
         # Phase 2: Build index
@@ -615,7 +626,8 @@ def build_index_and_filter_files(
         index_manager = IndexManager(llm=llm, sources=sources, args=args)
         index_data = index_manager.build_index()
         stats["indexed_files"] = len(index_data) if index_data else 0
-        stats["timings"]["build_index"] = time.monotonic() - phase_start
+        phase_end = time.monotonic()
+        stats["timings"]["build_index"] = phase_end - phase_start
 
         if args.request_id and not args.skip_events:
             queue_communicate.send_event(
@@ -650,7 +662,8 @@ def build_index_and_filter_files(
                     file_path = file.file_path.strip()
                     final_files[get_file_path(file_path)] = file
                 stats["level1_filtered"] = len(target_files.file_list)
-            stats["timings"]["level1_filter"] = time.monotonic() - phase_start
+            phase_end = time.monotonic()
+            stats["timings"]["level1_filter"] = phase_end - phase_start
 
             # Phase 4: Level 2 filtering - Related files
             if target_files is not None and args.index_filter_level >= 2:
@@ -673,8 +686,8 @@ def build_index_and_filter_files(
                         file_path = file.file_path.strip()
                         final_files[get_file_path(file_path)] = file
                     stats["level2_filtered"] = len(related_files.file_list)
-                stats["timings"]["level2_filter"] = time.monotonic() - \
-                    phase_start
+                phase_end = time.monotonic()
+                stats["timings"]["level2_filter"] = phase_end - phase_start
 
             if not final_files:
                 logger.warning("No related files found, using all files")
@@ -689,6 +702,28 @@ def build_index_and_filter_files(
             phase_start = time.monotonic()
             verified_files = {}
             temp_files = list(final_files.values())
+            verification_results = []
+            
+            def print_verification_results(results):
+                from rich.table import Table
+                from rich.console import Console
+                
+                console = Console()
+                table = Table(title="File Relevance Verification Results", show_header=True, header_style="bold magenta")
+                table.add_column("File Path", style="cyan", no_wrap=True)
+                table.add_column("Score", justify="right", style="green")
+                table.add_column("Status", style="yellow")
+                table.add_column("Reason/Error")
+                
+                for file_path, score, status, reason in results:
+                    table.add_row(
+                        file_path,
+                        str(score) if score is not None else "N/A",
+                        status,
+                        reason
+                    )
+                
+                console.print(table)
 
             def verify_single_file(file: TargetFile):
                 for source in sources:
@@ -700,13 +735,20 @@ def build_index_and_filter_files(
                                 query=args.query
                             )
                             if result.relevant_score >= args.verify_file_relevance_score:
-                                return file.file_path, TargetFile(
+                                verified_files[file.file_path] = TargetFile(
                                     file_path=file.file_path,
                                     reason=f"Score:{result.relevant_score}, {result.reason}"
                                 )
+                                return file.file_path, result.relevant_score, "PASS", result.reason
+                            else:
+                                return file.file_path, result.relevant_score, "FAIL", result.reason
                         except Exception as e:
-                            logger.warning(
-                                f"Failed to verify file {file.file_path}: {str(e)}")
+                            error_msg = str(e)
+                            verified_files[file.file_path] = TargetFile(
+                                file_path=file.file_path,
+                                reason=f"Verification failed: {error_msg}"
+                            )
+                            return file.file_path, None, "ERROR", error_msg
                 return None
 
             with ThreadPoolExecutor(max_workers=args.index_filter_workers) as executor:
@@ -715,15 +757,18 @@ def build_index_and_filter_files(
                 for future in as_completed(futures):
                     result = future.result()
                     if result:
-                        file_path, target_file = result
-                        verified_files[file_path] = target_file
+                        verification_results.append(result)
                         time.sleep(args.anti_quota_limit)
 
+            # Print verification results in a table
+            print_verification_results(verification_results)
+            
             stats["verified_files"] = len(verified_files)
-            stats["timings"]["relevance_verification"] = time.monotonic() - \
-                phase_start
+            phase_end = time.monotonic()
+            stats["timings"]["relevance_verification"] = phase_end - phase_start
 
-            final_files = verified_files if verified_files else final_files
+            # Keep all files, not just verified ones
+            final_files = verified_files
 
     def display_table_and_get_selections(data):
         from prompt_toolkit.shortcuts import checkboxlist_dialog
@@ -755,7 +800,7 @@ def build_index_and_filter_files(
         console = Console()
 
         table = Table(
-            title="Target Files You Selected",
+            title="Files Used as Context",
             show_header=True,
             header_style="bold magenta",
         )
@@ -802,7 +847,8 @@ def build_index_and_filter_files(
         if args.index_filter_file_num > 0:
             final_filenames = final_filenames[: args.index_filter_file_num]
 
-    stats["timings"]["file_selection"] = time.monotonic() - phase_start
+    phase_end = time.monotonic()
+    stats["timings"]["file_selection"] = phase_end - phase_start
 
     # Phase 7: Display results and prepare output
     logger.info("Phase 7: Preparing final output...")
@@ -848,26 +894,42 @@ def build_index_and_filter_files(
         )        
 
     stats["final_files"] = len(depulicated_sources)
-    stats["timings"]["prepare_output"] = time.monotonic() - phase_start
+    phase_end = time.monotonic()
+    stats["timings"]["prepare_output"] = phase_end - phase_start
 
     # Calculate total time and print summary
-    total_time = time.monotonic() - total_start_time
+    total_end_time = time.monotonic()
+    total_time = total_end_time - total_start_time
     stats["timings"]["total"] = total_time
+    
+    # Calculate total filter time
+    total_filter_time = (
+        stats["timings"]["level1_filter"] +
+        stats["timings"]["level2_filter"] +
+        stats["timings"]["relevance_verification"]
+    )
 
-    # Print final statistics
-    logger.info("\n=== Build Index and Filter Files Summary ===")
-    logger.info(f"Total files in project: {stats['total_files']}")
-    logger.info(f"Files indexed: {stats['indexed_files']}")
-    logger.info(f"Files after Level 1 filter: {stats['level1_filtered']}")
-    logger.info(f"Files after Level 2 filter: {stats['level2_filtered']}")
-    logger.info(
-        f"Files after relevance verification: {stats.get('verified_files', 0)}")
-    logger.info(f"Final files selected: {stats['final_files']}")
-    logger.info("\nTime breakdown:")
-    for phase, duration in stats["timings"].items():
-        logger.info(f"  - {phase}: {duration:.2f}s")
-    logger.info(f"Total execution time: {total_time:.2f}s")
-    logger.info("==========================================\n")
+    # Print final statistics in a more structured way
+    summary = f"""
+=== Indexing and Filtering Summary ===
+• Total files scanned: {stats['total_files']}
+• Files indexed: {stats['indexed_files']}
+• Files filtered:
+  - Level 1 (query-based): {stats['level1_filtered']}
+  - Level 2 (related files): {stats['level2_filtered']}
+  - Relevance verified: {stats.get('verified_files', 0)}
+• Final files selected: {stats['final_files']}
+
+=== Time Breakdown ===
+• Index build: {stats['timings'].get('build_index', 0):.2f}s
+• Level 1 filter: {stats['timings'].get('level1_filter', 0):.2f}s
+• Level 2 filter: {stats['timings'].get('level2_filter', 0):.2f}s
+• Relevance check: {stats['timings'].get('relevance_verification', 0):.2f}s
+• File selection: {stats['timings'].get('file_selection', 0):.2f}s
+• Total time: {total_time:.2f}s
+====================================
+"""
+    logger.info(summary)
 
     if args.request_id and not args.skip_events:
         queue_communicate.send_event(
@@ -876,7 +938,7 @@ def build_index_and_filter_files(
                 event_type=CommunicateEventType.CODE_INDEX_FILTER_END.value,
                 data=json.dumps({
                     "filtered_files": stats["final_files"],
-                    "filter_time": stats['level1_filtered'] + stats['level2_filtered'] + stats.get('verified_files', 0)
+                    "filter_time": total_filter_time
                 })
             )
         )

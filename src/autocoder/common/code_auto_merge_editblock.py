@@ -7,7 +7,6 @@ from autocoder.utils.queue_communicate import (
     CommunicateEvent,
     CommunicateEventType,
 )
-from typing import List
 import pydantic
 import byzerllm
 from loguru import logger
@@ -18,6 +17,9 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.syntax import Syntax
 import json
+from typing import Union, List, Tuple
+from autocoder.common.types import CodeGenerateResult, MergeCodeWithoutEffect
+from autocoder.common.code_modification_ranker import CodeModificationRanker
 
 
 class PathAndCode(pydantic.BaseModel):
@@ -138,7 +140,7 @@ class CodeAutoMergeEditBlock:
             elif end_marker(line, index) and start_marker_count == 1:
                 start_marker_count -= 1
                 if block:
-                    if current_editblock_mode == "two_line_mode":                        
+                    if current_editblock_mode == "two_line_mode":
                         path = block[0].split(":", 1)[1].strip()
                         content = "\n".join(block[1:])
                     else:
@@ -151,6 +153,25 @@ class CodeAutoMergeEditBlock:
                 block.append(line)
 
         return path_and_code_list
+
+    def merge_code(self, generate_result: CodeGenerateResult, force_skip_git: bool = False):
+        result = self.choose_best_choice(generate_result)
+        self._merge_code(result.contents[0], force_skip_git)
+        return result
+
+    def choose_best_choice(self, generate_result: CodeGenerateResult) -> CodeGenerateResult:
+        if len(generate_result.contents) == 1:
+            return generate_result
+
+        ranker = CodeModificationRanker(self.llm, self.args)
+        ranked_result = ranker.rank_modifications(generate_result)
+        # Filter out contents with failed blocks
+        for content,conversations in zip(ranked_result.contents,ranked_result.conversations):
+            merge_result = self._merge_code_without_effect(content)
+            if not merge_result.failed_blocks:
+                return CodeGenerateResult(contents=[content], conversations=[conversations])
+        # If all have failed blocks, return the first one
+        return CodeGenerateResult(contents=[ranked_result.contents[0]], conversations=[ranked_result.conversations[0]])
 
     @byzerllm.prompt()
     def git_require_msg(self, source_dir: str, error: str) -> str:
@@ -197,9 +218,57 @@ class CodeAutoMergeEditBlock:
                 if in_updated:
                     updates.append(line)
             result.append((edit.path, "\n".join(heads), "\n".join(updates)))
-        return result
+        return result        
 
-    def merge_code(self, content: str, force_skip_git: bool = False):
+    def _merge_code_without_effect(self, content: str) -> MergeCodeWithoutEffect:
+        """Merge code without any side effects like git operations, linting or file writing.
+        Returns a tuple of:
+        - list of (file_path, new_content) tuples for successfully merged blocks
+        - list of (file_path, head, update) tuples for failed to merge blocks"""
+        codes = self.get_edits(content)
+        file_content_mapping = {}
+        failed_blocks = []
+
+        for block in codes:
+            file_path, head, update = block
+            if not os.path.exists(file_path):
+                file_content_mapping[file_path] = update
+            else:
+                if file_path not in file_content_mapping:
+                    with open(file_path, "r") as f:
+                        temp = f.read()
+                        file_content_mapping[file_path] = temp
+                existing_content = file_content_mapping[file_path]
+
+                # First try exact match
+                new_content = (
+                    existing_content.replace(head, update, 1)
+                    if head
+                    else existing_content + "\n" + update
+                )
+
+                # If exact match fails, try similarity match
+                if new_content == existing_content and head:
+                    similarity, best_window = TextSimilarity(
+                        head, existing_content
+                    ).get_best_matching_window()
+                    if similarity > self.args.editblock_similarity:
+                        new_content = existing_content.replace(
+                            best_window, update, 1
+                        )
+
+                if new_content != existing_content:
+                    file_content_mapping[file_path] = new_content
+                else:
+                    failed_blocks.append((file_path, head, update))
+
+        return MergeCodeWithoutEffect(
+            success_blocks=[(path, content)
+                            for path, content in file_content_mapping.items()],
+            failed_blocks=failed_blocks
+        )
+
+    def _merge_code(self, content: str, force_skip_git: bool = False):
         file_content = open(self.args.file).read()
         md5 = hashlib.md5(file_content.encode("utf-8")).hexdigest()
         file_name = os.path.basename(self.args.file)
@@ -207,15 +276,15 @@ class CodeAutoMergeEditBlock:
         codes = self.get_edits(content)
         changes_to_make = []
         changes_made = False
-        unmerged_blocks = []  
-        merged_blocks = []      
+        unmerged_blocks = []
+        merged_blocks = []
 
         # First, check if there are any changes to be made
         file_content_mapping = {}
         for block in codes:
             file_path, head, update = block
             if not os.path.exists(file_path):
-                changes_to_make.append((file_path, None, update))                
+                changes_to_make.append((file_path, None, update))
                 file_content_mapping[file_path] = update
                 merged_blocks.append((file_path, "", update, 1))
                 changes_made = True
@@ -235,7 +304,7 @@ class CodeAutoMergeEditBlock:
                         (file_path, existing_content, new_content))
                     file_content_mapping[file_path] = new_content
                     merged_blocks.append((file_path, head, update, 1))
-                    changes_made = True                    
+                    changes_made = True
                 else:
                     # If the SEARCH BLOCK is not found exactly, then try to use
                     # the similarity ratio to find the best matching block
@@ -250,8 +319,9 @@ class CodeAutoMergeEditBlock:
                                 (file_path, existing_content, new_content)
                             )
                             file_content_mapping[file_path] = new_content
-                            merged_blocks.append((file_path, head, update, similarity))
-                            changes_made = True                            
+                            merged_blocks.append(
+                                (file_path, head, update, similarity))
+                            changes_made = True
                     else:
                         unmerged_blocks.append(
                             (file_path, head, update, similarity))
@@ -317,10 +387,10 @@ class CodeAutoMergeEditBlock:
                 file_path, head, update, similarity = code
                 event_data.append(
                     {
-                            "file_path": file_path,
-                            "head": head,
-                            "update": update,
-                            "similarity": similarity,
+                        "file_path": file_path,
+                        "head": head,
+                        "update": update,
+                        "similarity": similarity,
                     }
                 )
 

@@ -102,8 +102,11 @@ def parse_args(input_args: Optional[List[str]] = None) -> AutoCoderArgs:
         "--print_request", action="store_true", help=desc["print_request"]
     )
     parser.add_argument("--code_model", default="", help=desc["code_model"])
-    parser.add_argument("--inference_model", default="", help="The name of the inference model to use. Default is empty")
-    parser.add_argument("--system_prompt", default="", help=desc["system_prompt"])
+    parser.add_argument("--generate_rerank_model", default="", help=desc["generate_rerank_model"])
+    parser.add_argument("--inference_model", default="",
+                        help="The name of the inference model to use. Default is empty")
+    parser.add_argument("--system_prompt", default="",
+                        help=desc["system_prompt"])
     parser.add_argument("--planner_model", default="",
                         help=desc["planner_model"])
     parser.add_argument(
@@ -111,6 +114,9 @@ def parse_args(input_args: Optional[List[str]] = None) -> AutoCoderArgs:
     )
     parser.add_argument(
         "--human_as_model", action="store_true", help=desc["human_as_model"]
+    )
+    parser.add_argument(
+        "--human_model_num", type=int, default=1, help=desc["human_model_num"]
     )
     parser.add_argument("--urls", default="", help=desc["urls"])
     parser.add_argument(
@@ -128,6 +134,13 @@ def parse_args(input_args: Optional[List[str]] = None) -> AutoCoderArgs:
                         help=desc["search_engine"])
     parser.add_argument(
         "--search_engine_token", default="", help=desc["search_engine_token"]
+    )
+
+    parser.add_argument(
+        "--generate_times_same_model",
+        type=int,
+        default=1,
+        help=desc["generate_times_same_model"],
     )
 
     parser.add_argument(
@@ -158,7 +171,7 @@ def parse_args(input_args: Optional[List[str]] = None) -> AutoCoderArgs:
     parser.add_argument("--rag_url", default="", help="")
     parser.add_argument("--rag_params_max_tokens", default=4096, help="")
     parser.add_argument(
-        "--rag_type", default="storage", help="RAG type, default is storage"
+        "--rag_type", default="simple", help="RAG type, default is simple"
     )
 
     parser.add_argument(
@@ -196,7 +209,6 @@ def parse_args(input_args: Optional[List[str]] = None) -> AutoCoderArgs:
         action="store_true",
         help="是否静默执行,不打印任何信息。默认为False",
     )
-
 
     revert_parser = subparsers.add_parser("revert", help=desc["revert_desc"])
     revert_parser.add_argument("--file", help=desc["revert_desc"])
@@ -490,8 +502,8 @@ def parse_args(input_args: Optional[List[str]] = None) -> AutoCoderArgs:
     chat_parser.add_argument("--rag_params_max_tokens", default=4096, help="")
     chat_parser.add_argument(
         "--rag_type",
-        default="storage",
-        help="RAG type (simple/storage), default is storage",
+        default="simple",
+        help="RAG type (simple/storage), default is simple",
     )
     chat_parser.add_argument("--target_file", default="./output.txt", help="")
     chat_parser.add_argument(
@@ -555,7 +567,8 @@ def parse_args(input_args: Optional[List[str]] = None) -> AutoCoderArgs:
 
     read_project_parser.add_argument("--rag_token", default="", help="")
     read_project_parser.add_argument("--rag_url", default="", help="")
-    read_project_parser.add_argument("--rag_params_max_tokens", default=4096, help="")
+    read_project_parser.add_argument(
+        "--rag_params_max_tokens", default=4096, help="")
     read_project_parser.add_argument(
         "--rag_type", default="storage", help="RAG type, default is storage"
     )
@@ -645,9 +658,10 @@ def parse_args(input_args: Optional[List[str]] = None) -> AutoCoderArgs:
 
     auto_tool_parser.add_argument("--rag_token", default="", help="")
     auto_tool_parser.add_argument("--rag_url", default="", help="")
-    auto_tool_parser.add_argument("--rag_params_max_tokens", default=4096, help="")
     auto_tool_parser.add_argument(
-        "--rag_type", default="storage", help="RAG type, default is storage"
+        "--rag_params_max_tokens", default=4096, help="")
+    auto_tool_parser.add_argument(
+        "--rag_type", default="simple", help="RAG type, default is simple"
     )
     auto_tool_parser.add_argument(
         "--target_file", default="./output.txt", help="")
@@ -711,9 +725,10 @@ def parse_args(input_args: Optional[List[str]] = None) -> AutoCoderArgs:
 
     planner_parser.add_argument("--rag_token", default="", help="")
     planner_parser.add_argument("--rag_url", default="", help="")
-    planner_parser.add_argument("--rag_params_max_tokens", default=4096, help="")   
     planner_parser.add_argument(
-        "--rag_type", default="storage", help="RAG type, default is storage"
+        "--rag_params_max_tokens", default=4096, help="")
+    planner_parser.add_argument(
+        "--rag_type", default="simple", help="RAG type, default is simple"
     )
     planner_parser.add_argument(
         "--target_file", default="./output.txt", help="")

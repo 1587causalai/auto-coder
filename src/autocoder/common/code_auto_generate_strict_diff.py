@@ -1,9 +1,11 @@
 from typing import List, Dict, Tuple
-from autocoder.common.types import Mode
+from autocoder.common.types import Mode, CodeGenerateResult
 from autocoder.common import AutoCoderArgs
 import byzerllm
 from autocoder.utils.queue_communicate import queue_communicate, CommunicateEvent, CommunicateEventType
 from autocoder.common import sys_prompt
+from concurrent.futures import ThreadPoolExecutor
+import json
 
 class CodeAutoGenerateStrictDiff:
     def __init__(
@@ -12,12 +14,15 @@ class CodeAutoGenerateStrictDiff:
         self.llm = llm
         self.args = args
         self.action = action
+        self.llms = []
+        self.generate_times_same_model = args.generate_times_same_model
         if not self.llm:
             raise ValueError(
                 "Please provide a valid model instance to use for code generation."
-            )
-        if self.llm.get_sub_client("code_model"):
-            self.llm = self.llm.get_sub_client("code_model")
+            )        
+        self.llms = self.llm.get_sub_client("code_model") or [self.llm]
+        if not isinstance(self.llms, list):
+            self.llms = [self.llms]
 
     @byzerllm.prompt(llm=lambda self: self.llm)
     def multi_round_instruction(
@@ -109,12 +114,15 @@ class CodeAutoGenerateStrictDiff:
 
         {%- if content %}
         下面是一些文件路径以及每个文件对应的源码：
-
+        <files>
         {{ content }}
+        </files>
         {%- endif %}
 
         {%- if context %}
+        <extra_context>
         {{ context }}
+        </extra_context>
         {%- endif %}
 
         下面是用户的需求：
@@ -230,12 +238,15 @@ class CodeAutoGenerateStrictDiff:
 
         {%- if content %}
         下面是一些文件路径以及每个文件对应的源码：
-
+        <files>
         {{ content }}
+        </files>
         {%- endif %}
 
         {%- if context %}
+        <extra_context>
         {{ context }}
+        </extra_context>
         {%- endif %}
 
         下面是用户的需求：
@@ -258,74 +269,104 @@ class CodeAutoGenerateStrictDiff:
 
     def single_round_run(
         self, query: str, source_content: str
-    ) -> Tuple[str, Dict[str, str]]:
+    ) -> CodeGenerateResult:
         llm_config = {"human_as_model": self.args.human_as_model}
 
-        if self.args.request_id and not self.args.skip_events:
-            queue_communicate.send_event_no_wait(
-                request_id=self.args.request_id,
-                event=CommunicateEvent(
-                    event_type=CommunicateEventType.CODE_GENERATE_START.value,
-                    data=query,
-                ),
+        if self.args.template == "common":
+            init_prompt = self.single_round_instruction.prompt(
+                instruction=query, content=source_content, context=self.args.context
             )
-
-        init_prompt = self.single_round_instruction.prompt(
-            instruction=query, content=source_content, context=self.args.context
-        )
+        elif self.args.template == "auto_implement":
+            init_prompt = self.auto_implement_function.prompt(
+                instruction=query, content=source_content
+            )
 
         with open(self.args.target_file, "w") as file:
             file.write(init_prompt)
 
         conversations = []
+
         if self.args.system_prompt and self.args.system_prompt.strip() == "claude":
-            conversations.append({"role": "system", "content": sys_prompt.claude_sys_prompt.prompt()})
+            conversations.append(
+                {"role": "system", "content": sys_prompt.claude_sys_prompt.prompt()})
         elif self.args.system_prompt:
-            conversations.append({"role": "system", "content": self.args.system_prompt})
-        
+            conversations.append(
+                {"role": "system", "content": self.args.system_prompt})
+
         conversations.append({"role": "user", "content": init_prompt})
 
-        t = self.llm.chat_oai(conversations=conversations, llm_config=llm_config)
-        conversations.append({"role": "assistant", "content": t[0].output})
+        if self.args.request_id and not self.args.skip_events:
+            _ = queue_communicate.send_event(
+                request_id=self.args.request_id,
+                event=CommunicateEvent(
+                    event_type=CommunicateEventType.CODE_GENERATE_START.value,
+                    data=json.dumps({}, ensure_ascii=False),
+                ),
+            )
+        
+        conversations_list = []
+        results = []
+        if not self.args.human_as_model:
+            with ThreadPoolExecutor(max_workers=len(self.llms) * self.generate_times_same_model) as executor:
+                futures = []
+                for llm in self.llms:
+                    for _ in range(self.generate_times_same_model):
+                        futures.append(executor.submit(
+                            llm.chat_oai, conversations=conversations, llm_config=llm_config))
+                results = [future.result()[0].output for future in futures]
+            for result in results:
+                conversations_list.append(
+                    conversations + [{"role": "assistant", "content": result}])
+        else:            
+            for _ in range(self.args.human_model_num):
+                v = self.llms[0].chat_oai(
+                    conversations=conversations, llm_config=llm_config)
+                results.append(v[0].output)
+                conversations_list.append(conversations + [{"role": "assistant", "content": v[0].output}])
 
         if self.args.request_id and not self.args.skip_events:
-            queue_communicate.send_event_no_wait(
+            _ = queue_communicate.send_event(
                 request_id=self.args.request_id,
                 event=CommunicateEvent(
                     event_type=CommunicateEventType.CODE_GENERATE_END.value,
-                    data="",
+                    data=json.dumps({}, ensure_ascii=False),
                 ),
             )
 
-        return [t[0].output], conversations
+        return CodeGenerateResult(contents=results, conversations=conversations_list)
 
     def multi_round_run(
         self, query: str, source_content: str, max_steps: int = 10
-    ) -> Tuple[List[str], List[Dict[str, str]]]:
+    ) -> CodeGenerateResult:
         llm_config = {"human_as_model": self.args.human_as_model}
         result = []
 
-        init_prompt = self.multi_round_instruction.prompt(
-            instruction=query, content=source_content, context=self.args.context
-        )
+        if self.args.template == "common":
+            init_prompt = self.multi_round_instruction.prompt(
+                instruction=query, content=source_content, context=self.args.context
+            )
+        elif self.args.template == "auto_implement":
+            init_prompt = self.auto_implement_function.prompt(
+                instruction=query, content=source_content
+            )
 
-        conversations = [{"role": "user", "content": init_prompt}]
+        conversations = []
+        # conversations.append({"role": "system", "content": sys_prompt.prompt()})
+        conversations.append({"role": "user", "content": init_prompt})
 
         with open(self.args.target_file, "w") as file:
             file.write(init_prompt)
-
-        t = self.llm.chat_oai(conversations=conversations, llm_config=llm_config)
+        
+        code_llm = self.llms[0]
+        t = code_llm.chat_oai(conversations=conversations,
+                              llm_config=llm_config)
 
         result.append(t[0].output)
 
         conversations.append({"role": "assistant", "content": t[0].output})
 
-        if (
-            "__完成__" in t[0].output
-            or "/done" in t[0].output
-            or "__EOF__" in t[0].output
-        ):
-            return result, conversations
+        if "__完成__" in t[0].output or "/done" in t[0].output or "__EOF__" in t[0].output:
+            return CodeGenerateResult(contents=["\n\n".join(result)], conversations=[conversations])
 
         current_step = 0
 
@@ -336,17 +377,14 @@ class CodeAutoGenerateStrictDiff:
             with open(self.args.target_file, "w") as file:
                 file.write("继续")
 
-            t = self.llm.chat_oai(conversations=conversations, llm_config=llm_config)
+            t = code_llm.chat_oai(
+                conversations=conversations, llm_config=llm_config)
 
             result.append(t[0].output)
             conversations.append({"role": "assistant", "content": t[0].output})
             current_step += 1
 
-            if (
-                "__完成__" in t[0].output
-                or "/done" in t[0].output
-                or "__EOF__" in t[0].output
-            ):
-                return result, conversations
+            if "__完成__" in t[0].output or "/done" in t[0].output or "__EOF__" in t[0].output:
+                return CodeGenerateResult(contents=["\n\n".join(result)], conversations=[conversations])
 
-        return result, conversations
+        return CodeGenerateResult(contents=["\n\n".join(result)], conversations=[conversations])

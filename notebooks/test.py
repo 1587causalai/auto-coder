@@ -1,29 +1,70 @@
-from prompt_toolkit import PromptSession
-from prompt_toolkit.formatted_text import FormattedText
-from prompt_toolkit.styles import Style
+import os
+import sys
+import json
+import asyncio
+import tempfile
+from pathlib import Path
 
-# 设置样式
-style = Style.from_dict({
-    'username': '#884444',
-    'at': '#00aa00',
-    'colon': '#0000aa',
-    'pound': '#00aa00',
-    'host': '#00ffff bg:#444400',
-})
+from autocoder.common.mcp_hub import McpHub, McpServer, McpTool, McpResource, McpResourceTemplate
+from autocoder.common.mcp_tools import get_connected_servers_info
+# Helper function for async tests
+async def run_test(test_func):
+    """Helper to run async test functions"""
+    try:
+        await test_func()
+        print("✅ Test passed")
+    except AssertionError as e:
+        print(f"❌ Test failed: {str(e)}")
+    except Exception as e:
+        print(f"❌ Test error: {str(e)}")
 
-# 设置提示信息
-prompt_message = [
-    ('class:username', 'user'),
-    ('class:at', '@'),
-    ('class:host', 'localhost'),
-    ('class:colon', ':'),
-    ('class:pound', '$ '),
-]
+# Previous test cases...
 
-# 创建会话
-session = PromptSession()
+async def test_filesystem_operations():
+    """Test filesystem operations using MCP"""
+    # Create settings file with filesystem server config
+    with tempfile.NamedTemporaryFile(mode='w', delete=False) as f:
+        settings = {
+            "mcpServers": {
+                "filesystem": {
+                    "command": "npx",
+                    "args": [
+                        "-y",
+                        "@modelcontextprotocol/server-filesystem",
+                        "/Users/allwefantasy/projects/tests"                        
+                    ]
+                }
+            }
+        }
+        json.dump(settings, f)
+        settings_path = f.name
+    
+    try:
+        # Initialize hub
+        hub = McpHub(settings_path)
+        await hub.initialize()
 
-# 获取用户输入
-user_input = session.prompt(FormattedText(prompt_message), style=style)
+        print(get_connected_servers_info(hub))
+        
+        # Create directory using tools
+        list_dir_args = {
+            "path": "/Users/allwefantasy/projects/tests/"            
+        }
+        
+        try:
+            # Call the create directory tool
+            result = await hub.call_tool("filesystem", "list_directory", list_dir_args)
+            print(f"Directory list result: {result}")                        
+            
+        except Exception as e:
+            print(f"Error during directory creation: {e}")
+            raise
+            
+    finally:
+        # Cleanup
+        await hub.shutdown()
+        os.unlink(settings_path)
 
-print(f"You entered: {user_input}")
+# Run the filesystem test
+print("Testing filesystem operations:")
+asyncio.run(run_test(test_filesystem_operations))

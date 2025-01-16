@@ -26,16 +26,12 @@ from autocoder.version import __version__
 from autocoder.auto_coder import main as auto_coder_main
 from autocoder.common.command_completer import CommandTextParser
 from autocoder.utils import get_last_yaml_file
-import pathlib
 from autocoder.index.symbols_utils import (
     extract_symbols,
-    symbols_info_to_str,
-    SymbolsInfo,
     SymbolType,
 )
 import platform
 import subprocess
-import shlex
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
@@ -43,23 +39,13 @@ from rich.live import Live
 from rich.text import Text
 from rich.live import Live
 from byzerllm.utils.nontext import Image
-import re
 import git
 from autocoder.common import git_utils
-from autocoder.utils.request_queue import (
-    request_queue,
-    RequestValue,
-    DefaultValue,
-    RequestOption,
-)
-import asyncio
-from byzerllm.utils.langutil import asyncfy_with_semaphore
-from prompt_toolkit.patch_stdout import patch_stdout
-import byzerllm
-from byzerllm.utils import format_str_jinja2
 from autocoder.chat_auto_coder_lang import get_message
 from autocoder.utils import operate_config_api
 from autocoder.agent.auto_guess_query import AutoGuessQuery
+from autocoder.common.mcp_server import get_mcp_server, McpRequest, McpInstallRequest, McpRemoveRequest, McpListRequest, McpListRunningRequest, McpRefreshRequest
+import byzerllm
 
 
 class SymbolItem(BaseModel):
@@ -125,6 +111,7 @@ commands = [
     "/mode",
     "/lib",
     "/design",
+    "/mcp",
 ]
 
 
@@ -323,54 +310,29 @@ def initialize_system():
     except subprocess.CalledProcessError:
         print_status(get_message("model_error"), "error")
 
-    # If deepseek_chat is not available, prompt user to choose a provider
+    # If deepseek_chat is not available
     print_status(get_message("model_not_available"), "warning")
-    choice = radiolist_dialog(
-        title=get_message("provider_selection"),
-        text=get_message("provider_selection"),
-        values=[
-            ("1", "硅基流动(https://siliconflow.cn)"),
-            ("2", "Deepseek官方(https://www.deepseek.com/)"),
-        ],
-    ).run()
-
-    if choice is None:
-        print_status(get_message("no_provider"), "error")
-        return
-
     api_key = prompt(HTML(f"<b>{get_message('enter_api_key')} </b>"))
 
-    if choice == "1":
-        print_status(get_message("deploying_model").format("硅基流动"), "")
-        deploy_cmd = [
-            "easy-byzerllm",
-            "deploy",
-            "deepseek-ai/deepseek-v2-chat",
-            "--token",
-            api_key,
-            "--alias",
-            "deepseek_chat",
-        ]
-    else:
-        print_status(get_message("deploying_model").format("Deepseek官方"), "")
-        deploy_cmd = [
-            "byzerllm",
-            "deploy",
-            "--pretrained_model_type",
-            "saas/openai",
-            "--cpus_per_worker",
-            "0.001",
-            "--gpus_per_worker",
-            "0",
-            "--worker_concurrency",
-            "1000",
-            "--num_workers",
-            "1",
-            "--infer_params",
-            f"saas.base_url=https://api.deepseek.com/v1 saas.api_key={api_key} saas.model=deepseek-chat",
-            "--model",
-            "deepseek_chat",
-        ]
+    print_status(get_message("deploying_model").format("Deepseek官方"), "")
+    deploy_cmd = [
+        "byzerllm",
+        "deploy",
+        "--pretrained_model_type",
+        "saas/openai",
+        "--cpus_per_worker",
+        "0.001",
+        "--gpus_per_worker",
+        "0",
+        "--worker_concurrency",
+        "1000",
+        "--num_workers",
+        "1",
+        "--infer_params",
+        f"saas.base_url=https://api.deepseek.com/v1 saas.api_key={api_key} saas.model=deepseek-chat",
+        "--model",
+        "deepseek_chat",
+    ]
 
     try:
         subprocess.run(deploy_cmd, check=True)
@@ -931,6 +893,15 @@ class CommandCompleter(Completer):
                             yield Completion(
                                 lib_name, start_position=-len(current_word)
                             )
+            elif words[0] == "/mcp":
+                new_text = text[len("/mcp"):]
+                parser = CommandTextParser(new_text, words[0])
+                parser.lib()
+                current_word = parser.current_word()
+                for command in parser.get_sub_commands():
+                    if command.startswith(current_word):
+                        yield Completion(command, start_position=-len(current_word))
+
             elif words[0] == "/coding":
                 new_text = text[len("/coding"):]
                 parser = CommandTextParser(new_text, words[0])
@@ -1423,6 +1394,7 @@ def get_llm_friendly_package_docs(
 
 def convert_yaml_to_config(yaml_file: str):
     from autocoder.auto_coder import AutoCoderArgs, load_include_files, Template
+
     args = AutoCoderArgs()
     with open(yaml_file, "r") as f:
         config = yaml.safe_load(f)
@@ -1435,6 +1407,103 @@ def convert_yaml_to_config(yaml_file: str):
                     value = template.render(os.environ)
                 setattr(args, key, value)
     return args
+
+
+def mcp(query: str):
+    query = query.strip()
+    mcp_server = get_mcp_server()
+
+    # Handle remove command
+    if query.startswith("/remove"):
+        server_name = query.replace("/remove", "", 1).strip()
+        response = mcp_server.send_request(
+            McpRemoveRequest(server_name=server_name))
+        if response.error:
+            print(f"Error removing MCP server: {response.error}")
+        else:
+            print(f"Successfully removed MCP server: {response.result}")
+        return
+
+    # Handle list command
+    if query.startswith("/list_running"):
+        response = mcp_server.send_request(McpListRunningRequest())
+        if response.error:
+            print(f"Error listing running MCP servers: {response.error}")
+        else:
+            print("Running MCP servers:")
+            print(response.result)
+        return
+
+    # Handle list command
+    if query.startswith("/list"):
+        response = mcp_server.send_request(McpListRequest())
+        if response.error:
+            print(f"Error listing builtin MCP servers: {response.error}")
+        else:
+            print("Available builtin MCP servers:")
+            print(response.result)
+        return
+
+    # Handle refresh command
+    if query.startswith("/refresh"):
+        server_name = query.replace("/refresh", "", 1).strip()    
+        response = mcp_server.send_request(McpRefreshRequest(name=server_name or None))
+        if response.error:
+            print(f"Error refreshing MCP servers: {response.error}")
+        else:
+            print("Successfully refreshed MCP servers")
+        return
+
+    # Handle add command
+    if query.startswith("/add"):
+        query = query.replace("/add", "", 1).strip()
+        request = McpInstallRequest(server_name_or_config=query)
+        response = mcp_server.send_request(request)
+
+        if response.error:
+            print(f"Error installing MCP server: {response.error}")
+        else:
+            print(f"Successfully installed MCP server: {response.result}")
+        return
+
+    # Handle default query
+    conf = memory.get("conf", {})
+    yaml_config = {
+        "include_file": ["./base/base.yml"],
+        "auto_merge": conf.get("auto_merge", "editblock"),
+        "human_as_model": conf.get("human_as_model", "false") == "true",
+        "skip_build_index": conf.get("skip_build_index", "true") == "true",
+        "skip_confirm": conf.get("skip_confirm", "true") == "true",
+        "silence": conf.get("silence", "true") == "true",
+        "include_project_structure": conf.get("include_project_structure", "true")
+        == "true",
+    }
+    for key, value in conf.items():
+        converted_value = convert_config_value(key, value)
+        if converted_value is not None:
+            yaml_config[key] = converted_value
+
+    temp_yaml = os.path.join("actions", f"{uuid.uuid4()}.yml")
+    try:
+        with open(temp_yaml, "w") as f:
+            f.write(convert_yaml_config_to_str(yaml_config=yaml_config))
+        args = convert_yaml_to_config(temp_yaml)
+    finally:
+        if os.path.exists(temp_yaml):
+            os.remove(temp_yaml)
+
+    mcp_server = get_mcp_server()
+    response = mcp_server.send_request(
+        McpRequest(
+            query=query,
+            model=args.inference_model or args.model
+        )
+    )
+
+    if response.error:
+        print(f"Error from MCP server: {response.error}")
+    else:
+        print(response.result)
 
 
 def code_next(query: str):
@@ -1467,13 +1536,11 @@ def code_next(query: str):
         args.inference_model or args.model)
 
     auto_guesser = AutoGuessQuery(
-        llm=llm,
-        project_dir=os.getcwd(),
-        skip_diff=True
-    )
+        llm=llm, project_dir=os.getcwd(), skip_diff=True)
 
     predicted_tasks = auto_guesser.predict_next_tasks(
-        5, is_human_as_model=args.human_as_model)
+        5, is_human_as_model=args.human_as_model
+    )
 
     if not predicted_tasks:
         console = Console()
@@ -1499,23 +1566,34 @@ def code_next(query: str):
                               for f in task.urls])
 
         # Format dependencies to be more readable
-        dependencies = "\n".join(
-            task.dependency_queries) if task.dependency_queries else "None"
-
-        table.add_row(
-            str(task.priority),
-            task.query,
-            file_list,
-            task.reason,
-            dependencies
+        dependencies = (
+            "\n".join(
+                task.dependency_queries) if task.dependency_queries else "None"
         )
 
-    console.print(Panel(
-        table,
-        title="[bold]Predicted Next Tasks[/bold]",
-        border_style="blue",
-        padding=(1, 2)  # Add more horizontal padding
-    ))
+        table.add_row(
+            str(task.priority), task.query, file_list, task.reason, dependencies
+        )
+
+    console.print(
+        Panel(
+            table,
+            title="[bold]Predicted Next Tasks[/bold]",
+            border_style="blue",
+            padding=(1, 2),  # Add more horizontal padding
+        )
+    )
+
+
+def get_single_llm(model_names: str):
+    if "," in model_names:
+        # Multiple code models specified
+        model_names = model_names.split(",")
+        for _, model_name in enumerate(model_names):
+            return byzerllm.ByzerLLM.from_default_model(model_name)
+    else:
+        # Single code model
+        return byzerllm.ByzerLLM.from_default_model(model_names)
 
 
 def commit(query: str):
@@ -1567,11 +1645,11 @@ def commit(query: str):
                 if os.path.exists(temp_yaml):
                     os.remove(temp_yaml)
 
-            llm = byzerllm.ByzerLLM.from_default_model(
-                args.code_model or args.model)
+            llm = get_single_llm(args.code_model or args.model)
             uncommitted_changes = git_utils.get_uncommitted_changes(".")
-            commit_message = git_utils.generate_commit_message.with_llm(
-                llm).run(uncommitted_changes)
+            commit_message = git_utils.generate_commit_message.with_llm(llm).run(
+                uncommitted_changes
+            )
             memory["conversation"].append(
                 {"role": "user", "content": commit_message})
             yaml_config["query"] = commit_message
@@ -1580,10 +1658,11 @@ def commit(query: str):
                 f.write(yaml_content)
 
             file_content = open(execute_file).read()
-            md5 = hashlib.md5(file_content.encode('utf-8')).hexdigest()
+            md5 = hashlib.md5(file_content.encode("utf-8")).hexdigest()
             file_name = os.path.basename(execute_file)
             commit_result = git_utils.commit_changes(
-                ".", f"auto_coder_{file_name}_{md5}")
+                ".", f"auto_coder_{file_name}_{md5}"
+            )
             git_utils.print_commit_info(commit_result=commit_result)
         except Exception as e:
             print(f"Failed to commit: {e}")
@@ -1631,6 +1710,8 @@ def coding(query: str):
             "include_project_structure": conf.get("include_project_structure", "true")
             == "true",
         }
+
+        yaml_config["context"] = ""
 
         for key, value in conf.items():
             converted_value = convert_config_value(key, value)
@@ -1690,12 +1771,13 @@ def coding(query: str):
 
             yaml_config[
                 "context"
-            ] += f"下面是我们的历史对话，参考我们的历史对话从而更好的理解需求和修改代码。\n\n"
+            ] += f"下面是我们的历史对话，参考我们的历史对话从而更好的理解需求和修改代码。\n\n<history>\n"
             for conv in conversations:
                 if conv["role"] == "user":
                     yaml_config["context"] += f"用户: {conv['content']}\n"
                 elif conv["role"] == "assistant":
                     yaml_config["context"] += f"你: {conv['content']}\n"
+            yaml_config["context"] += "</history>\n"
 
         yaml_content = convert_yaml_config_to_str(yaml_config=yaml_config)
 
@@ -1718,18 +1800,18 @@ def coding(query: str):
 @byzerllm.prompt()
 def code_review(query: str) -> str:
     """
-    对代码进行review，参考如下检查点。        
+    对代码进行review，参考如下检查点。
     1. 有没有调用不符合方法，类的签名的调用
     2. 有没有未声明直接使用的变量，方法，类
     3. 有没有明显的语法错误
-    4. 如果是python代码，检查有没有缩进方面的错误  
+    4. 如果是python代码，检查有没有缩进方面的错误
     5. 如果是python代码，检查是否 try 后面缺少 except 或者 finally
     {% if query %}
     6. 用户的额外的检查需求：{{ query }}
     {% endif %}
 
     如果用户的需求包含了@一个文件名 或者 @@符号， 那么重点关注这些文件或者符号（函数，类）进行上述的review。
-    review 过程中严格遵循上述的检查点，不要遗漏，没有发现异常的点直接跳过，只对发现的异常点，给出具体的修改后的代码。    
+    review 过程中严格遵循上述的检查点，不要遗漏，没有发现异常的点直接跳过，只对发现的异常点，给出具体的修改后的代码。
     """
 
 
@@ -1738,7 +1820,8 @@ def chat(query: str):
 
     yaml_config = {
         "include_file": ["./base/base.yml"],
-        "include_project_structure": conf.get("include_project_structure", "true") in ["true", "True"],
+        "include_project_structure": conf.get("include_project_structure", "true")
+        in ["true", "True"],
         "human_as_model": conf.get("human_as_model", "false") == "true",
         "skip_build_index": conf.get("skip_build_index", "true") == "true",
         "skip_confirm": conf.get("skip_confirm", "true") == "true",
@@ -2300,9 +2383,7 @@ def main():
             memory["mode"] = "normal"
         mode = memory["mode"]
         human_as_model = memory["conf"].get("human_as_model", "false")
-        return (
-            f" Mode: {MODES[mode]} (ctl+k) | Human as Model: {human_as_model} (ctl+n or /conf human_as_model:true/false)"
-        )
+        return f" Mode: {MODES[mode]} (ctl+k) | Human as Model: {human_as_model} (ctl+n or /conf human_as_model:true/false)"
 
     session = PromptSession(
         history=InMemoryHistory(),
@@ -2461,6 +2542,13 @@ def main():
                 args = user_input[len("/lib"):].strip().split()
                 lib_command(args)
 
+            elif user_input.startswith("/mcp"):
+                query = user_input[len("/mcp"):].strip()
+                if not query:
+                    print("Please enter your query.")
+                else:
+                    mcp(query)
+
             elif user_input.startswith("/debug"):
                 code = user_input[len("/debug"):].strip()
                 try:
@@ -2484,6 +2572,11 @@ def main():
         except EOFError:
             try:
                 save_memory()
+                try:
+                    if get_mcp_server():
+                        get_mcp_server().stop()
+                except Exception as e:
+                    pass
             except Exception as e:
                 print(
                     f"\033[91mAn error occurred while saving memory:\033[0m \033[93m{type(e).__name__}\033[0m - {str(e)}"

@@ -207,7 +207,8 @@ def main(input_args: Optional[List[str]] = None):
             max_seq = max(seqs)
 
         new_seq = str(max_seq + 1).zfill(12)
-        prev_files = [f for f in action_files if int(get_old_seq(f)) < int(new_seq)]
+        prev_files = [f for f in action_files if int(
+            get_old_seq(f)) < int(new_seq)]
 
         if raw_args.from_yaml:
             # If --from_yaml is specified, copy content from the matching YAML file
@@ -278,9 +279,36 @@ def main(input_args: Optional[List[str]] = None):
         llm = byzerllm.ByzerLLM(verbose=args.print_request)
 
         if args.code_model:
-            code_model = byzerllm.ByzerLLM()
-            code_model.setup_default_model_name(args.code_model)
-            llm.setup_sub_client("code_model", code_model)
+            if "," in args.code_model:
+                # Multiple code models specified
+                model_names = args.code_model.split(",")
+                models = []
+                for _, model_name in enumerate(model_names):
+                    code_model = byzerllm.ByzerLLM()
+                    code_model.setup_default_model_name(model_name.strip())
+                    models.append(code_model)
+                llm.setup_sub_client("code_model", models)
+            else:
+                # Single code model
+                code_model = byzerllm.ByzerLLM()
+                code_model.setup_default_model_name(args.code_model)
+                llm.setup_sub_client("code_model", code_model)
+
+        if args.generate_rerank_model:
+            if "," in args.generate_rerank_model:
+                # Multiple rerank models specified
+                model_names = args.generate_rerank_model.split(",")
+                models = []
+                for _, model_name in enumerate(model_names):
+                    rerank_model = byzerllm.ByzerLLM()
+                    rerank_model.setup_default_model_name(model_name.strip())
+                    models.append(rerank_model)
+                llm.setup_sub_client("generate_rerank_model", models)
+            else:
+                # Single rerank model
+                rerank_model = byzerllm.ByzerLLM()
+                rerank_model.setup_default_model_name(args.generate_rerank_model)
+                llm.setup_sub_client("generate_rerank_model", rerank_model)
 
         if args.inference_model:
             inference_model = byzerllm.ByzerLLM()
@@ -391,18 +419,25 @@ def main(input_args: Optional[List[str]] = None):
 
             llm.add_event_callback(
                 EventName.BEFORE_CALL_MODEL, intercept_callback)
-            code_model = llm.get_sub_client("code_model")
-            if code_model:
-                code_model.add_event_callback(
-                    EventName.BEFORE_CALL_MODEL, intercept_callback
-                )
+            
+            code_models = llm.get_sub_client("code_model")
+            if code_models:
+                if not isinstance(code_models, list):
+                    code_models = [code_models]
+                for model in code_models:
+                    model.add_event_callback(
+                        EventName.BEFORE_CALL_MODEL, intercept_callback
+                    )
         # llm.add_event_callback(EventName.AFTER_CALL_MODEL, token_counter_interceptor)
 
-        code_model = llm.get_sub_client("code_model")
-        if code_model:
-            code_model.add_event_callback(
-                EventName.AFTER_CALL_MODEL, token_counter_interceptor
-            )
+        code_models = llm.get_sub_client("code_model")
+        if code_models:
+            if not isinstance(code_models, list):
+                code_models = [code_models]
+            for model in code_models:
+                model.add_event_callback(
+                    EventName.AFTER_CALL_MODEL, token_counter_interceptor
+                )
 
         llm.setup_template(model=args.model, template="auto")
         llm.setup_default_model_name(args.model)
@@ -498,7 +533,7 @@ def main(input_args: Optional[List[str]] = None):
         from autocoder.index.for_command import index_query_command
 
         index_query_command(args, llm)
-        return   
+        return
 
     if raw_args.command == "agent":
         if raw_args.agent_command == "planner":
@@ -704,10 +739,13 @@ def main(input_args: Optional[List[str]] = None):
                         old_chat_history = json.load(f)
                     if "conversation_history" not in old_chat_history:
                         old_chat_history["conversation_history"] = []
-                    old_chat_history["conversation_history"].append(old_chat_history.get("ask_conversation", []))
-                    chat_history = {"ask_conversation": [], "conversation_history": old_chat_history["conversation_history"]}
+                    old_chat_history["conversation_history"].append(
+                        old_chat_history.get("ask_conversation", []))
+                    chat_history = {"ask_conversation": [
+                    ], "conversation_history": old_chat_history["conversation_history"]}
                 else:
-                    chat_history = {"ask_conversation": [], "conversation_history": []}
+                    chat_history = {"ask_conversation": [],
+                                    "conversation_history": []}
                 with open(memory_file, "w") as f:
                     json.dump(chat_history, f, ensure_ascii=False)
                 console.print(
@@ -727,7 +765,8 @@ def main(input_args: Optional[List[str]] = None):
                 if "conversation_history" not in chat_history:
                     chat_history["conversation_history"] = []
             else:
-                chat_history = {"ask_conversation": [], "conversation_history": []}
+                chat_history = {"ask_conversation": [],
+                                "conversation_history": []}
 
             chat_history["ask_conversation"].append(
                 {"role": "user", "content": args.query}
@@ -747,7 +786,7 @@ def main(input_args: Optional[List[str]] = None):
                     pre_conversations.append(
                         {
                             "role": "user",
-                            "content": f"下面是一些文档和源码，如果用户的问题和他们相关，请参考他们：\n{file_content}",
+                            "content": f"下面是一些文档和源码，如果用户的问题和他们相关，请参考他们：\n <files>\n{file_content}</files>",
                         },
                     )
                     pre_conversations.append(
@@ -774,7 +813,7 @@ def main(input_args: Optional[List[str]] = None):
                 pre_conversations.append(
                     {
                         "role": "user",
-                        "content": f"下面是一些文档和源码，如果用户的问题和他们相关，请参考他们：\n{s}",
+                        "content": f"下面是一些文档和源码，如果用户的问题和他们相关，请参考他们：\n <files>{s}</files>",
                     }
                 )
                 pre_conversations.append(
@@ -792,15 +831,19 @@ def main(input_args: Optional[List[str]] = None):
                     source_codes, pre_conversations, last_conversation
                 ):
                     """
+                    <files>
                     {% if source_codes %}
                     {{ source_codes }}
                     {% endif %}
+                    </files>
 
                     {% if pre_conversations %}
                     下面是我们之间的历史对话，假设我是A，你是B。
+                    <conversations>
                     {% for conv in pre_conversations %}
                     {{ "A" if conv.role == "user" else "B" }}: {{ conv.content }}
                     {% endfor %}
+                    </conversations>
                     {% endif %}
 
 
@@ -953,7 +996,7 @@ def main(input_args: Optional[List[str]] = None):
 
             with open(memory_file, "w") as f:
                 json.dump(chat_history, f, ensure_ascii=False)
-                        
+
             return
 
         else:

@@ -2,10 +2,12 @@
 import os
 from byzerllm.utils.client import code_utils
 from autocoder.common import AutoCoderArgs,git_utils
-from typing import List
+from typing import List,Union,Tuple
 import pydantic
 import byzerllm
 from loguru import logger
+from autocoder.common.types import CodeGenerateResult, MergeCodeWithoutEffect
+from autocoder.common.code_modification_ranker import CodeModificationRanker
 import hashlib
 
 class PathAndCode(pydantic.BaseModel):
@@ -58,7 +60,26 @@ class CodeAutoMerge:
             elif start_marker_count > 0:
                 block.append(line)                
 
-        return path_and_code_list     
+        return path_and_code_list
+
+    def merge_code(self, generate_result: CodeGenerateResult, force_skip_git: bool = False):
+        result = self.choose_best_choice(generate_result)
+        self._merge_code(result.contents[0], force_skip_git)
+        return result
+
+    def choose_best_choice(self, generate_result: CodeGenerateResult) -> CodeGenerateResult:
+        if len(generate_result.contents) == 1:
+            return generate_result
+
+        ranker = CodeModificationRanker(self.llm, self.args)
+        ranked_result = ranker.rank_modifications(generate_result)
+        # Filter out contents with failed blocks
+        for content,conversations in zip(ranked_result.contents,ranked_result.conversations):
+            merge_result = self._merge_code_without_effect(content)
+            if not merge_result.failed_blocks:
+                return CodeGenerateResult(contents=[content], conversations=[conversations])
+        # If all have failed blocks, return the first one
+        return CodeGenerateResult(contents=[ranked_result.contents[0]], conversations=[ranked_result.conversations[0]])
 
 
     def parse_text(self, text: str) -> List[PathAndCode]:
@@ -99,7 +120,34 @@ class CodeAutoMerge:
         Error: {{ error }}
         '''
 
-    def merge_code(self, content: str,force_skip_git:bool=False):        
+    def _merge_code_without_effect(self, content: str) -> MergeCodeWithoutEffect:
+        """Merge code without any side effects like git operations or file writing.
+        Returns a tuple of:
+        - list of (file_path, new_content) tuples for successfully merged blocks
+        - list of (file_path, content) tuples for failed to merge blocks"""
+        codes = self.parse_whole_text_v2(content)
+        file_content_mapping = {}
+        failed_blocks = []
+        
+        for block in codes:
+            file_path = block.path
+            if not os.path.exists(file_path):
+                file_content_mapping[file_path] = block.content
+            else:
+                if file_path not in file_content_mapping:
+                    with open(file_path, "r") as f:
+                        file_content_mapping[file_path] = f.read()
+                if file_content_mapping[file_path] != block.content:
+                    file_content_mapping[file_path] = block.content
+                else:
+                    failed_blocks.append((file_path, block.content))
+                
+        return MergeCodeWithoutEffect(
+            success_blocks=[(path, content) for path, content in file_content_mapping.items()],
+            failed_blocks=failed_blocks
+        )
+
+    def _merge_code(self, content: str,force_skip_git:bool=False):        
         total = 0
         
         file_content = open(self.args.file).read()
@@ -114,18 +162,6 @@ class CodeAutoMerge:
                 logger.error(self.git_require_msg(source_dir=self.args.source_dir,error=str(e)))
                 return            
 
-        # codes =  code_utils.extract_code(content)
-        # for (lang,code) in codes:            
-        #     parsed_blocks = self.parse_text(code)
-
-        #     for block in parsed_blocks:
-        #         file_path = block.path
-        #         os.makedirs(os.path.dirname(file_path), exist_ok=True)
-
-        #         with open(file_path, "w") as f:
-        #             logger.info(f"Upsert path: {file_path}")
-        #             total += 1
-        #             f.write(block.content)
         codes = self.parse_whole_text_v2(content)
         for block in codes:
             file_path = block.path

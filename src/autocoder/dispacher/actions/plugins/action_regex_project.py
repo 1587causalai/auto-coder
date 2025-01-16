@@ -68,35 +68,45 @@ class ActionRegexProject:
             else:
                 generate = CodeAutoGenerate(llm=self.llm, args=self.args, action=self)
             if self.args.enable_multi_round_generate:
-                result, conversations = generate.multi_round_run(
+                generate_result = generate.multi_round_run(
                     query=args.query, source_content=content
                 )
             else:
-                result, conversations = generate.single_round_run(
+                generate_result = generate.single_round_run(
                     query=args.query, source_content=content
                 )
-            content = "\n\n".join(result)
+            merge_result = None
+            if args.execute and args.auto_merge:
+                logger.info("Auto merge the code...")
+                if args.auto_merge == "diff":
+                    code_merge = CodeAutoMergeDiff(llm=self.llm, args=self.args)
+                    merge_result = code_merge.merge_code(generate_result=generate_result)
+                elif args.auto_merge == "strict_diff":
+                    code_merge = CodeAutoMergeStrictDiff(llm=self.llm, args=self.args)
+                    merge_result = code_merge.merge_code(generate_result=generate_result)
+                elif args.auto_merge == "editblock":
+                    code_merge = CodeAutoMergeEditBlock(llm=self.llm, args=self.args)
+                    merge_result = code_merge.merge_code(generate_result=generate_result)
+                else:
+                    code_merge = CodeAutoMerge(llm=self.llm, args=self.args)
+                    merge_result = code_merge.merge_code(generate_result=generate_result)
 
-            store_code_model_conversation(
-                args=self.args,
-                instruction=self.args.query,
-                conversations=conversations,
-                model=self.llm.default_model_name,
-            )
-        with open(args.target_file, "w") as file:
-            file.write(content)
-
-        if args.execute and args.auto_merge:
-            logger.info("Auto merge the code...")
-            if args.auto_merge == "diff":
-                code_merge = CodeAutoMergeDiff(llm=self.llm, args=self.args)
-                code_merge.merge_code(content=content)
-            elif args.auto_merge == "strict_diff":
-                code_merge = CodeAutoMergeStrictDiff(llm=self.llm, args=self.args)
-                code_merge.merge_code(content=content)
-            elif args.auto_merge == "editblock":
-                code_merge = CodeAutoMergeEditBlock(llm=self.llm, args=self.args)
-                code_merge.merge_code(content=content)
+            if merge_result is not None:
+                content = merge_result.contents[0]
+                store_code_model_conversation(
+                    args=self.args,
+                    instruction=self.args.query,
+                    conversations=merge_result.conversations[0],
+                    model=self.llm.default_model_name,
+                )
             else:
-                code_merge = CodeAutoMerge(llm=self.llm, args=self.args)
-                code_merge.merge_code(content=content)
+                content = generate_result.contents[0]
+                store_code_model_conversation(
+                    args=self.args,
+                    instruction=self.args.query,
+                    conversations=generate_result.conversations[0],
+                    model=self.llm.default_model_name,
+                )
+
+            with open(args.target_file, "w") as file:
+                file.write(content)

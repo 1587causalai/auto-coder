@@ -2,12 +2,14 @@ import os
 import difflib
 import diff_match_patch as dmp_module
 from autocoder.common import AutoCoderArgs, git_utils
-from typing import List
+from typing import List,Tuple
 import pydantic
 import byzerllm
 from loguru import logger
 import hashlib
 from pathlib import Path
+from autocoder.common.types import CodeGenerateResult, MergeCodeWithoutEffect
+from autocoder.common.code_modification_ranker import CodeModificationRanker
 
 class PathAndCode(pydantic.BaseModel):
     path: str
@@ -125,7 +127,26 @@ class CodeAutoMergeStrictDiff:
             elif start_marker_count > 0:
                 block.append(line)                
 
-        return path_and_code_list    
+        return path_and_code_list
+
+    def merge_code(self, generate_result: CodeGenerateResult, force_skip_git: bool = False):
+        result = self.choose_best_choice(generate_result)
+        self._merge_code(result.contents[0], force_skip_git)
+        return result
+
+    def choose_best_choice(self, generate_result: CodeGenerateResult) -> CodeGenerateResult:
+        if len(generate_result.contents) == 1:
+            return generate_result
+
+        ranker = CodeModificationRanker(self.llm, self.args)
+        ranked_result = ranker.rank_modifications(generate_result)
+        # Filter out contents with failed blocks
+        for content,conversations in zip(ranked_result.contents,ranked_result.conversations):
+            merge_result = self._merge_code_without_effect(content)
+            if not merge_result.failed_blocks:
+                return CodeGenerateResult(contents=[content], conversations=[conversations])
+        # If all have failed blocks, return the first one
+        return CodeGenerateResult(contents=[ranked_result.contents[0]], conversations=[ranked_result.conversations[0]])
     
 
     def abs_root_path(self, path):
@@ -134,7 +155,52 @@ class CodeAutoMergeStrictDiff:
         res = Path(self.args.source_dir) / path
         return safe_abs_path(res)            
 
-    def merge_code(self, content: str, force_skip_git: bool = False):        
+    def _merge_code_without_effect(self, content: str) -> MergeCodeWithoutEffect:
+        """Merge code without any side effects like git operations or file writing.
+        Returns a tuple of:
+        - list of (file_path, new_content) tuples for successfully merged blocks
+        - list of (file_path, content) tuples for failed to merge blocks"""
+        diff_blocks = self.parse_diff_block(content)
+        file_content_mapping = {}
+        failed_blocks = []
+        
+        for block in diff_blocks:
+            path = block.path
+            content = block.content
+            full_path = self.abs_root_path(path)
+            
+            if not os.path.exists(full_path):
+                file_content_mapping[full_path] = content
+                continue
+                
+            if full_path not in file_content_mapping:
+                with open(full_path, "r") as f:
+                    file_content_mapping[full_path] = f.read()
+            
+            try:
+                import patch
+                patch_obj = patch.fromstring(content.encode('utf-8'))
+                root_path = None
+                if not path.startswith(self.args.source_dir):
+                    root_path = self.args.source_dir
+
+                # Create a copy of the content to apply patch
+                temp_content = file_content_mapping[full_path]
+                success = patch_obj.apply(root=root_path, content=temp_content)
+                if success:
+                    file_content_mapping[full_path] = temp_content
+                else:
+                    failed_blocks.append((full_path, content))
+            except Exception as e:
+                logger.warning(f"Failed to apply patch to {full_path}: {str(e)}")
+                failed_blocks.append((full_path, content))
+                
+        return MergeCodeWithoutEffect(
+            success_blocks=[(path, content) for path, content in file_content_mapping.items()],
+            failed_blocks=failed_blocks
+        )
+
+    def _merge_code(self, content: str, force_skip_git: bool = False):        
         total = 0
         
         file_content = open(self.args.file).read()
@@ -153,35 +219,6 @@ class CodeAutoMergeStrictDiff:
         for diff_blocks in diff_blocks:
             path = diff_blocks.path
             content = diff_blocks.content          
-
-            # unidiff_patch = unidiff.PatchSet(content)
-            # dmp_patches = []
-            # for patched_file in unidiff_patch:
-            #     diffs = []
-            #     start_line = 0
-            #     for hunk in patched_file:
-            #         start_line = hunk.target_start - 1  # 获取hunk的起始位置
-            #         for line in hunk:
-            #             if line.is_added:
-            #                 diffs.append(dmp_module.diff('', line.value.strip(), start_line))
-            #                 start_line += 1
-            #             elif line.is_removed:
-            #                 diffs.append(dmp_module.diff(line.value.strip(), '', start_line))
-            #             else:
-            #                 start_line += 1
-            #     patch_text = dmp.patch_make(diffs)
-            #     dmp_patches.extend(patch_text)
-            
-            # with open(path, 'r') as f:
-            #     original_content = f.read()
-                
-            # dmp = dmp_module.diff_match_patch()            
-            # new_text, results = dmp.patch_apply(dmp_patches, original_content)            
-            # if any(results) is False:
-            #     raise Exception("Error applying diff to file: " + path)
-            # with open(self.abs_root_path(path), 'w') as f:
-            #     f.write(new_text)
-            # total += 1 
 
             import patch
             patch_obj = patch.fromstring(content.encode('utf-8'))

@@ -21,6 +21,7 @@ lang_desc = {
         "cmd_args_title": "Command Line Arguments:",
         "py_packages": "The Python packages added to context, only works for py project type. Default is empty.",
         "human_as_model": "Use human as model or not. Default is False",
+        "human_model_num": "Number of human models to use. Default is 1",
         "urls": "The urls to crawl and extract text from, separated by comma",
         "search_engine": "The search engine to use. Supported engines: bing, google. Default is empty",
         "search_engine_token": "The token for the search engine API. Default is empty",
@@ -62,6 +63,7 @@ lang_desc = {
         "screenshot_url": "The URL of the webpage to capture",
         "screenshot_output": "The directory to save the screenshots",
         "code_model": "The name of the code model to use. Default is empty",
+        "generate_rerank_model": "The name of the generate rerank model to use. Default is empty",
         "inference_model": "The name of the inference model to use. Default is empty",
         "system_prompt": "The system prompt for the model. Default is empty",
         "planner_model": "The name of the planner model to use. Default is empty",
@@ -79,6 +81,7 @@ lang_desc = {
         "rag_token": "The token for the RAG service. Default is empty",
         "rag_type": "RAG type (simple/storage), default is storage",
         "rag_params_max_tokens": "The maximum number of tokens for RAG parameters. Default is 4096",
+        "generate_times_same_model": "Number of times to generate using the same model. Default is 1",
     },
     "zh": {
         "request_id": "Request ID",
@@ -102,6 +105,7 @@ lang_desc = {
         "cmd_args_title": "命令行参数:", 
         "py_packages": "添加到上下文的Python包,仅适用于py项目类型。默认为空。",
         "human_as_model": "是否使用人工作为模型。默认为False",
+        "human_model_num": "使用的人工模型数量。默认为1",
         "urls": "要爬取并提取文本的URL,多个URL以逗号分隔",
         "search_engine": "要使用的搜索引擎。支持的引擎:bing、google。默认为空",
         "search_engine_token": "搜索引擎API的令牌。默认为空",
@@ -143,6 +147,7 @@ lang_desc = {
         "screenshot_url": "要捕获的网页的URL",
         "screenshot_output": "保存截图的目录",
         "code_model": "要使用的代码模型的名称。默认为空",
+        "generate_rerank_model": "要使用的生成重排序模型的名称。默认为空",
         "inference_model": "要使用的推理模型的名称。默认为空",
         "system_prompt": "模型使用的系统提示词。默认为空",
         "next_desc": "基于上一个action文件创建一个新的action文件",
@@ -159,6 +164,7 @@ lang_desc = {
          "rag_url": "RAG服务的URL",
         "rag_token": "RAG服务的令牌",
         "rag_type": "RAG类型(simple/storage),默认是storage",
-        "rag_params_max_tokens": "RAG参数的最大token数。默认为4096",    
+        "rag_params_max_tokens": "RAG参数的最大token数。默认为4096",  
+        "generate_times_same_model": "使用相同模型生成的次数。默认为1",
     }
 }
